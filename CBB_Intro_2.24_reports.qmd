@@ -1,0 +1,2771 @@
+---
+title: "ChiBlock Builder Data Exploration Report"
+author: 
+  - "**Great Cities Institute**"
+  - "Kyle McFarren"
+date: today
+editor: 
+  mode: visual
+  markdown: 
+    wrap: sentence
+format:
+  html:
+    echo: false
+    theme: sandstone
+    toc: true
+    toc_float: true
+    number_sections: true
+  pdf:
+    number_sections: true
+execute:
+  eval: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+library(leaflet)
+library(sf)
+library(tigris)
+library(forcats)
+library(knitr)
+library(tidyr)
+library(tmap)
+library(ggmap)
+#library(leaflet.extras)
+library(janitor)
+
+options(dplyr.summarise.inform = FALSE)
+
+#hiding these options here...
+#code-fold: true
+#    code-summary: "Show the code"
+
+#knitr::opts_knit$set(root.dir = "D:/GCI/CBB R")
+knitr::opts_knit$set(root.dir = "C:/Users/kylem/MSCA/GCI/BlockBuilder Data/Intro Report")
+data_clean <- read.csv("CBB_Data_Rebuild3.3.csv")
+
+data_clean <- data_clean %>% select(1:39)
+
+#data_clean <- read.csv("CBB_Data_Rebuild3.3.csv")
+neighborhood_key <- read.csv("Neighborhood connection key.csv")
+neighborhood_key <- neighborhood_key %>%
+  dplyr::select(1, 2)
+
+neighborhood_key <- neighborhood_key %>%
+  rename(connection_time = `Length.of.time.that.applicant.has.had.connection.to.neighborhood`)
+
+data_clean <- data_clean %>%
+  left_join(neighborhood_key, by = c("connection" = "connection_time"))
+
+#data_clean %>% filter(is.na(Translate.x))
+#227 are NA
+
+data_clean %>% filter(connection == "")
+#267 are from a blank connection, those are ok
+
+#data_clean %>% filter(connection != "") %>%
+#  filter(is.na(Translate.x)) %>%
+#  dplyr::select(connection)
+
+#0 lines, all responses accounted for now
+
+# data_clean <- data_clean %>%
+#   rename(connection = connection, connection6 = Translate.x, applicant_ZIP = applicant_ZIP, hispanic = hispanic, LGBTQIA = LGBTQIA, age = age, income = income) %>%
+#   dplyr::select(Record.ID, Name.Key, Person.Count, applicant_ZIP, Application.Status, Application.Type, Property.PIN, Property.Applications, Date.Submitted, Property.Type.of.Land, Property.Address, connection2, Applicant.Race, hispanic, Gender.Identity, LGBTQIA,  everything())
+
+# Clean up the entity types in the data
+data_clean <- data_clean %>%
+  mutate(Purchasing.Entity.Type = case_when(
+    Purchasing.Entity.Type %in% c("For-Profit Business Corporation", "For Profit Busines Corporation", "For-profit corporation") ~ "For-Profit Organization",
+    Purchasing.Entity.Type == "Individual" ~ "Sole Proprietor/Individual",
+    is.na(Purchasing.Entity.Type) | Purchasing.Entity.Type == "" ~ "Not Provided",
+    TRUE ~ Purchasing.Entity.Type  # Leave other types as is
+  ))
+
+# Clean up any invalid UTF-8 characters in Name.Key and Purchasing.Entity.Type
+data_clean <- data_clean %>%
+  mutate(Name.Key = iconv(Name.Key, from = "UTF-8", to = "ASCII", sub = ""),
+         Purchasing.Entity.Type = iconv(Purchasing.Entity.Type, from = "UTF-8", to = "ASCII", sub = ""))
+
+data_clean %>%
+  count(Application.Status)
+
+data_clean$Application.Status2 <- data_clean$Application.Status  # Step 1: Create the field
+
+# Step 2: Recode "Withdrawn" or "Declined" into "Declined & Withdrawn"
+data_clean$Application.Status2 <- ifelse(data_clean$Application.Status %in% c("Withdrawn", "Declined"),
+                                         "Declined & Withdrawn",
+                                         data_clean$Application.Status2)
+
+# Replace blanks/NA in Purchasing.Entity.Type with "Not Provided"
+data_clean <- data_clean %>%
+  mutate(Purchasing.Entity.Type = case_when(
+    Purchasing.Entity.Type %in% c("For-Profit Business Corporation", "For Profit Busines Corporation", "For-profit corporation") ~ "For-Profit Organization",
+    Purchasing.Entity.Type == "Individual" ~ "Sole Proprietor/Individual",
+    is.na(Purchasing.Entity.Type) | Purchasing.Entity.Type == "" ~ "Not Provided", # Include previous cleaning step
+    TRUE ~ Purchasing.Entity.Type  # Leave other entries unchanged
+  ))
+
+#take changes made further down and put them all here in the intro/setup section
+person_lot_count <- data_clean %>%
+  group_by(Person.Count) %>%
+  distinct(Name.Key) %>%
+  summarise(Count_of_People = n_distinct(Name.Key),           # Count distinct people by Name.Key
+            Lots_Accounted_For = sum(Person.Count)) %>%  # Calculate total lots
+  arrange(Person.Count)
+
+# Create a new variable for the count of lots applied for each Name & Entity Type combo
+data_clean <- data_clean %>%
+  group_by(Name.Key, Purchasing.Entity.Type) %>%
+  mutate(Lot_Application_Count = n()) %>%  # New variable for the count of lots per Person & Entity Type combo
+  ungroup()
+
+# Add a column indicating if the entity applied for 1 lot or more than 1 lot based on this new variable
+data_clean <- data_clean %>%
+  mutate(Lot_Application_Group = case_when(
+    Lot_Application_Count == 1 ~ "1 lot",
+    Lot_Application_Count > 1 ~ ">1 lot"
+  ))
+
+# Convert Date.Submitted to Date format
+data_clean <- data_clean %>%
+  mutate(Date.Submitted = as.Date(Date.Submitted, format = "%m/%d/%Y"))
+
+
+# Create a new column for "Sole Proprietor/Individual" or "All Others"
+data_clean <- data_clean %>%
+  mutate(Entity_Type_Group = case_when(
+    Purchasing.Entity.Type == "Sole Proprietor/Individual" ~ "Sole Proprietor/Individual",
+    TRUE ~ "All Others"
+  ))
+
+# Filter the data for each window and create a categorical variable for each window
+data_clean <- data_clean %>%
+  mutate(Application_Window = case_when(
+    Date.Submitted >= as.Date("2022-11-01") & Date.Submitted <= as.Date("2023-05-31") ~ "Window 1, Nov '22 - May '23",
+    Date.Submitted >= as.Date("2023-11-01") & Date.Submitted <= as.Date("2024-01-31") ~ "Window 2, Nov '23 - Jan '24",
+    Date.Submitted >= as.Date("2024-03-01") & Date.Submitted <= as.Date("2024-07-31") ~ "Window 3, March '24 - July '24",
+    TRUE ~ NA_character_  # Exclude other dates
+  ))
+
+#deomgraphic data, really only applies to individuals but filling in for everyone here
+
+data_clean <- data_clean %>%
+  mutate(Applicant.Race = ifelse(is.na(Applicant.Race) | Applicant.Race == "", "Not Provided", Applicant.Race), 
+         Gender.Identity = ifelse(is.na(Gender.Identity) | Gender.Identity == "", "Not Provided", Gender.Identity), 
+         hispanic = ifelse(is.na(hispanic) | hispanic == "", "Not Provided", hispanic), 
+         hispanic = ifelse(hispanic == "Not Hispanic or Latino/ Latina/ Latinx", 
+                           "Not Hispanic or Latino/Latina/Latinx", hispanic), 
+         LGBTQIA = ifelse(is.na(LGBTQIA) | LGBTQIA == "", "Not Provided", LGBTQIA), 
+         age = case_when(age == "18-24" ~ "18 - 24", age == "25-34" ~ "25 - 34", age == "35-44" ~ "35 - 44",
+          age == "45-54" ~ "45 - 54", TRUE ~ age),  # Leave all other age values unchanged
+         age = ifelse(is.na(age) | age == "", "Not Provided", age), 
+         income = as.character(income),   # Convert to character
+         income = str_trim(income),       # Trim whitespace
+         income = ifelse(income %in% c("NA", "") | is.na(income), "Not Provided", income), # Replace "NA" text, blanks, actual NAs
+         connection2 = ifelse(connection2 == "10-20 years", "11-20 years", connection2), 
+         connection2 = ifelse(is.na(connection2) | connection2 == "", "Not Provided", connection2)
+         )
+
+# Extract Property ZIP Code to capture 5 digits before ', USA'
+#data_clean$Property_ZipCode <- str_extract(data_clean$address, "\\d{5}(?=, usa)")
+
+# Remove blanks in Application.Type (will clean this later w/ Urban Agriculture lots, etc)
+#data_clean <- data_clean
+#  mutate(Application.Type = ifelse(is.na(Application.Type) | Application.Type == "", "Not Listed", Application.Type))
+
+data_clean <- data_clean %>%
+  mutate(Application.Type = ifelse(is.na(Application.Type) | Application.Type == "", "Not Provided", Application.Type))
+
+#write.csv(data_clean, "CBB_Data_Rebuild2.27.csv", row.names = FALSE)
+
+```
+CLEAN
+
+## **Intro**
+
+ChiBlockBuilder (CBB) operated 3 rounds of applications windows for available city lots between Nov '22 and Nov '24.
+Applicants included individuals, For-Profits and Non-Profits; types of lot developments included open space, side yards, affordable housing, market rate housing and commercial development.
+
+CBB data exports produced 2,266 lines of applicant info and were provided by City to GCI in August '24.
+Once data was cleaned & multi-PIN applications were split up, total records numbered 2,359.
+
+Create Matt's CSV file for Maps
+
+```{r, matt csv}
+#FIGURE 10 UNIQUE LOTS
+# Filter out invalid ZIP codes
+filtered_data <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
+
+# Get unique Property.PIN values
+unique_lots <- filtered_data %>%
+  distinct(Property.PIN, Property_ZipCode)
+
+# Count unique lots by ZIP Code
+zip_lot_counts <- unique_lots %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Unique.Lots.by.ZIP = n(), .groups = "drop")
+
+#FIGURE 10 UNIQUE INDIVIDUALS
+# Filter dataset for Chicago applicants and valid ZIP codes
+filtered_applicants <- data_clean %>%
+  filter(Applicant.Address.City %in% c("Chicago", "Chicago, IL") & 
+         !is.na(Applicant.ZIP.Code) & Applicant.ZIP.Code != 0)
+
+# Keep only unique Name.Key per ZIP
+unique_applicants <- filtered_applicants %>%
+  distinct(Name.Key, Applicant.ZIP.Code)  # Ensures each applicant is counted only once per ZIP
+
+# Count unique applicants by home ZIP
+home_zip_counts <- unique_applicants %>%
+  group_by(Applicant.ZIP.Code) %>%
+  summarise(Applicant.Counts.by.Home.ZIP = n(), .groups = "drop")
+
+#FIGURE 11 APPLICANTS FROM SAME ZIP APPLIED FOR
+# Sum all application counts by Property_ZipCode
+property_app_counts <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Property.Applications.by.ZIP = n(), .groups = "drop")
+
+# Filter dataset where Property_ZipCode matches Applicant.ZIP
+matching_zips <- data_clean %>%
+  filter(Property_ZipCode == Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Property.Applicant.ZIP.Match.Count = n(), .groups = "drop")
+
+# Merge the two datasets to calculate the percentage match
+zip_summary <- property_app_counts %>%
+  left_join(matching_zips, by = "Property_ZipCode") %>%
+  mutate(Property.Applicant.ZIP.Match.Count = replace_na(Property.Applicant.ZIP.Match.Count, 0),  # Replace NA with 0
+         Pct.Property.Applicant.ZIP.Match = Property.Applicant.ZIP.Match.Count / Property.Applications.by.ZIP * 100)
+
+# Filter dataset for Sole Proprietor/Individual applicants
+sole_proprietor_data <- data_clean %>%
+  filter(Purchasing.Entity.Type == "Sole Proprietor/Individual")
+
+# Sum all application counts by Property_ZipCode for Sole Proprietors
+sole_proprietor_app_counts <- sole_proprietor_data %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Sole.Proprietor.Applications.by.ZIP = n(), .groups = "drop")
+
+# Filter dataset where Property_ZipCode matches Applicant.ZIP for Sole Proprietors
+sole_proprietor_matching_zips <- sole_proprietor_data %>%
+  filter(Property_ZipCode == Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Sole.Proprietor.Applicant.ZIP.Match.Count = n(), .groups = "drop")
+
+# Merge the two datasets to calculate the percentage match
+sole_proprietor_summary <- sole_proprietor_app_counts %>%
+  left_join(sole_proprietor_matching_zips, by = "Property_ZipCode") %>%
+  mutate(Sole.Proprietor.Applicant.ZIP.Match.Count = replace_na(Sole.Proprietor.Applicant.ZIP.Match.Count, 0),  # Replace NA with 0
+         Pct.Sole.Proprietor.Applicant.ZIP.Match = Sole.Proprietor.Applicant.ZIP.Match.Count / Sole.Proprietor.Applications.by.ZIP * 100)
+
+# Filter dataset for non-Sole Proprietor (Organizations)
+org_data <- data_clean %>%
+  filter(Purchasing.Entity.Type != "Sole Proprietor/Individual")
+
+# Sum all application counts by Property_ZipCode for Organizations
+org_app_counts <- org_data %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Org.Applications.by.ZIP = n(), .groups = "drop")
+
+# Filter dataset where Property_ZipCode matches Applicant.ZIP.Code for Organizations
+org_matching_zips <- org_data %>%
+  filter(Property_ZipCode == Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Org.Applicant.ZIP.Match.Count = n(), .groups = "drop")
+
+# Merge the two datasets to calculate the percentage match
+org_summary <- org_app_counts %>%
+  left_join(org_matching_zips, by = "Property_ZipCode") %>%
+  mutate(Org.Applicant.ZIP.Match.Count = replace_na(Org.Applicant.ZIP.Match.Count, 0),  # Replace NA with 0
+         Pct.Org.Applicant.ZIP.Match = Org.Applicant.ZIP.Match.Count / Org.Applications.by.ZIP * 100)
+
+# Count applications where Property_ZipCode does NOT match Applicant.ZIP.Code
+outside_zip_applications <- data_clean %>%
+  filter(Property_ZipCode != Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Outside.ZIP.Application.Count = n(), .groups = "drop")
+
+# Start with a full join of all ZIP-related datasets
+final_zip_summary <- zip_lot_counts %>%
+  full_join(home_zip_counts, by = c("Property_ZipCode" = "Applicant.ZIP.Code")) %>%
+  full_join(zip_summary, by = "Property_ZipCode") %>%
+  full_join(sole_proprietor_summary, by = "Property_ZipCode") %>%
+  full_join(org_summary, by = "Property_ZipCode") %>%
+  full_join(outside_zip_applications, by = "Property_ZipCode")
+
+# Replace NA values with 0 to avoid missing data
+final_zip_summary[is.na(final_zip_summary)] <- 0
+
+final_zip_summary <- final_zip_summary %>%
+  mutate(ZIP.Demand.Score = Property.Applications.by.ZIP / Unique.Lots.by.ZIP)
+
+
+# Save to CSV
+#write.csv(final_zip_summary, "figure.map.values.csv", row.names = FALSE)
+
+rm(filtered_applicants, filtered_data, final_zip_summary, home_zip_counts, matching_zips, org_app_counts,
+   org_data, org_matching_zips, org_summary, outside_zip_applications, property_app_counts,
+   sole_proprietor_app_counts, sole_proprietor_data, sole_proprietor_matching_zips, 
+   sole_proprietor_summary, unique_applicants, unique_lots, zip_lot_counts, zip_summary)
+
+```
+CLEAN
+
+Our first look at the data examines by name of applicant how many lots were applied for.
+
+```{r}
+person_lot_count %>%
+  kable(col.names = c("Number of Lots Applied For", 
+                      "Count of People", 
+                      "Total Lots Accounted For"),
+        caption = "Count of Lots Applied For by Individual Name")
+
+```
+
+This table groups applicants by the number of lots applied for based on each individual name.
+Line one tells us 864 individuals applied for only one lot.
+Most individual names are only attached to 1 or a handful of lot applications, although there do appear to be a few "power users" of the application platform.
+
+```{r eval=FALSE}
+# Inconsistent data check section - checking for individuals if they have provided different demographic info across multiple applications they've been a part of. 
+
+data_clean_indiv_check <- data_clean %>%
+  filter(Purchasing.Entity.Type == "Sole Proprietor/Individual")
+
+# Filter the data to include only individuals with multiple applications
+multi_applicants <- data_clean_indiv_check %>%
+  group_by(Name.Key) %>%
+  filter(n() > 1) %>%
+  ungroup() %>%
+  select(Record.ID, Name.Key, Applicant.ZIP.Code, connection2, Applicant.Race, hispanic, Gender.Identity, LGBTQIA, age, income, Applicant.Address.1, Applicant.Address.2, Property.Community.Area)
+
+# Define a function to check for inconsistencies in each demographic variable
+check_inconsistencies <- function(data, field) {
+  # Group by Name.Key and check for cases with both non-missing and missing (NA or "")
+  inconsistent <- data %>%
+    group_by(Name.Key) %>%
+    summarise(inconsistent = any(!is.na(get(field)) & get(field) != "") & any(is.na(get(field)) | get(field) == "")) %>%
+    filter(inconsistent) %>%
+    pull(Name.Key)  
+  return(inconsistent)
+}
+
+# List of demographic fields to check
+demographic_fields <- c("Applicant.Race", "hispanic", "Gender.Identity", "LGBTQIA", "age", "income")
+
+# Create a list to store the results for each field
+inconsistencies <- list()
+
+# Loop through each demographic field and store inconsistent Name.Keys
+for (field in demographic_fields) {
+  inconsistencies[[field]] <- check_inconsistencies(multi_applicants, field)
+}
+
+# Print results
+#for (field in names(inconsistencies)) {
+#  cat(paste("Inconsistent entries for", field, ":", length(inconsistencies[[field]]), "individuals\n"))
+#  print(inconsistencies[[field]])
+#}
+
+rm(inconsistencies, multi_applicants)
+
+```
+CLEAN
+
+## Purchasing Entity Summary
+
+Each application requests an entity type, responses received are:\
+Sole Proprietor/Individual, For-Profit Organization, Non-Profit Organization, Limited Liability Company, Not Provided & Other
+
+Some individual names are attached to applications of multiple entity types.
+For example - one of the names applying for 33 lots on the above table submitted 10 applications as a For-Profit Organization, 7 as a Non-Profit Organization, and 16 as a Sole Proprietor/Individual.
+
+```{r, purchasing entity2, warning=FALSE}
+
+# Step 1: Calculate counts and percentages
+entity_counts <- data_clean %>%
+  count(Purchasing.Entity.Type) %>%
+  mutate(Percent = (n / sum(n)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart using the updated layout
+ggplot(entity_counts, aes(x = fct_reorder(Purchasing.Entity.Type, -n), y = Percent)) +  
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Percent labels above bars
+  geom_text(aes(label = n, y = -5), vjust = 0.5) +  # Raw count below x-axis labels
+  labs(title = "Breakdown of Purchasing Entity Type", 
+       x = "Purchasing Entity Type", 
+       y = "Percent of Applications") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), expand = expansion(mult = c(0.2, 0.5))) +  
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.025),  # Keep labels readable
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title positioning
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)  # Expand left margin so first label fits
+  )
+
+rm(entity_counts)
+
+```
+CLEAN 
+
+The 2 listed as "Other (specify)" provided no additional clarifying information in their application form.
+
+Each application is also tagged with an Application Status of Accepted, In-Progress, Declined or Withdrawn.
+I've merged the Declined & Withdrawn status in the following charts and tables.
+These values will change over time as more move out of "In-Progress".
+
+```{r, warning=FALSE}
+# Group by Application.Status2, calculate counts
+status_overall_table <- data_clean %>%
+  group_by(Application.Status2) %>%
+  summarise(Overall_Count = n())
+
+# Reorder categories in the desired order
+status_overall_table$Application.Status2 <- factor(status_overall_table$Application.Status2, 
+                                                   levels = c("Accepted", "In-Progress", "Declined & Withdrawn"))
+
+# Step 1: Calculate total counts and percentages
+status_overall_table <- status_overall_table %>%
+  mutate(Percent = (Overall_Count / sum(Overall_Count)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with corrected scale
+ggplot(status_overall_table, aes(x = Application.Status2, y = Percent)) +
+  geom_bar(stat = "identity") +  
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5, size = 5) +  # Show % above bars
+  geom_text(aes(label = Overall_Count, y = -5), vjust = .5, size = 4) +  # Bring raw counts back into view
+  labs(title = "Application Status Overview",
+       x = "Application Status",
+       y = "Percent of Applications") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     limits = c(-10, 100),  # Keep scale within 0-100%
+                     expand = expansion(mult = c(0, 0.1))) +  # Prevents excess space
+  theme_minimal() +
+  theme(
+    legend.position = "none",  # Remove legend since color is directly shown
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.025),  # Adjust x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)  # Expand left margin to fit first label
+  )
+
+rm(status_overall_table)
+
+```
+CLEAN
+
+Calculating the percent within each group that are Approved vs In-Progress vs Declined & Withdrawn tells us which types of applications are more likely to receive approval.
+Notable is that the LLCs have a considerably higher approval rate compared to the other entity types (more on this further down).
+While the other entity types have a slight variance in their Accepted %'s, the "Declined & Withdrawn" percentages are similar.LLCs also have a notably higher acceptance rate than the acceptance rate for all applications.
+All other entity types are within two or three percentage points of the overall acceptance rate.
+
+```{r, include=FALSE}
+# Create a stacked bar chart for Purchasing.Entity.Type stacked by Application.Status
+ggplot(data_clean, aes(x = fct_infreq(Purchasing.Entity.Type), fill = Application.Status2)) +
+  geom_bar() +
+  labs(title = "Purchasing Entity Type Breakdown Volume by Application Status", 
+       x = "Purchasing Entity Type", 
+       y = "Count of Applications",
+       fill = "Application Status") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +  # Expand by 10% at the top
+  scale_fill_manual(values = c("Accepted" = "lightgreen", "Declined & Withdrawn" = "pink", "In-Progress" = "skyblue")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r, warning=FALSE}
+# Step 1: Calculate counts for each Application.Status2 by Purchasing.Entity.Type
+status_count_table <- data_clean %>%
+  group_by(Purchasing.Entity.Type, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to wide format (statuses as columns)
+status_count_pivot <- status_count_table %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 3: Calculate total applications per entity type
+status_count_pivot <- status_count_pivot %>%
+  mutate(Total = rowSums(select(., -Purchasing.Entity.Type)))
+
+# Step 4: Calculate percentages for each status
+status_percent_table <- status_count_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))  # Round to 1 decimal
+
+#Select only necessary columns from the percent table before joining
+status_percent_table <- status_percent_table %>%
+  select(Purchasing.Entity.Type, `Accepted (%)`, `In-Progress (%)`, `Declined & Withdrawn (%)`)
+
+library(scales, warn.conflicts = FALSE)  # Needed for comma formatting
+
+# Step 5: Merge Count and Percent into one final table (avoiding .x and .y naming)
+final_table <- status_count_pivot %>%
+  left_join(status_percent_table, by = "Purchasing.Entity.Type") %>%
+  select(Purchasing.Entity.Type,
+         Accepted, `Accepted (%)`,
+         `In-Progress`, `In-Progress (%)`,
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`,
+         Total)  # Ensure correct order
+
+final_table <- final_table %>%
+  mutate(`Total (%)` = 100.0)  # Since total is always 100%
+
+# Apply formatting:
+final_table <- final_table %>%
+  mutate(
+    across(c(Accepted, `In-Progress`, `Declined & Withdrawn`, Total),
+           ~ formatC(.x, format = "f", big.mark = ",", digits = 0)),  # Comma formatting, no decimals
+    across(c(`Accepted (%)`, `In-Progress (%)`, `Declined & Withdrawn (%)`, `Total (%)`),
+           ~ paste0(formatC(.x, format = "f", digits = 1), "%"))  # Ensure 1 decimal place & append "%"
+  )
+
+# Create the formatted table with multi-line headers
+final_table %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), col.names = NULL) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c(" " = 1, "Count" = 1, "Percent" = 1,
+                     "Count" = 1, "Percent" = 1,
+                     "Count" = 1, "Percent" = 1,
+                     "Count" = 1, "Percent" = 1)) %>%
+  add_header_above(c("Entity Type" = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(2:9, width = "7em", extra_css = "text-align: right;") %>%
+  row_spec(0, align = "left")
+
+rm(status_count_pivot, status_count_table, status_percent_table)
+
+```
+
+CLEAN
+
+Visualizing the status by entity type doesn't uncover additional irregularities in the data.
+
+We wanted to explore if there is a difference in acceptance rates between entities applying for one lot vs those with more than one application.
+Individual/Sole Proprietors were filtered out of this set.
+
+```{r}
+
+# Step 1: Filter out Sole Proprietor/Individual
+data_clean_business <- data_clean %>%
+  filter(Purchasing.Entity.Type != "Sole Proprietor/Individual")
+
+# Step 2: Compute Total Counts by Entity Type & Lot Application Group
+total_counts <- data_clean_business %>%
+  group_by(Purchasing.Entity.Type, Lot_Application_Group) %>%
+  summarise(Total = n(), .groups = "drop")
+
+# Step 3: Compute Count of Each Application Status
+status_count_table <- data_clean_business %>%
+  group_by(Purchasing.Entity.Type, Lot_Application_Group, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 4: Pivot Count Table to Get Application.Status as Columns (for raw counts)
+status_pivot_count_table <- status_count_table %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = list(Count = 0))
+
+# Ensure missing columns appear with 0 counts
+status_pivot_count_table <- status_pivot_count_table %>%
+  mutate(
+    Accepted = coalesce(Accepted, 0),
+    `In-Progress` = coalesce(`In-Progress`, 0),
+    `Declined & Withdrawn` = coalesce(`Declined & Withdrawn`, 0)
+  )
+
+# Step 5: Compute Percentages Within Each Group and Format with "%"
+status_percent_table <- status_pivot_count_table %>%
+  left_join(total_counts, by = c("Purchasing.Entity.Type", "Lot_Application_Group")) %>%
+  mutate(
+    `Accepted (%)` = paste0(round((Accepted / Total) * 100, 1), "%"),
+    `In-Progress (%)` = paste0(round((`In-Progress` / Total) * 100, 1), "%"),
+    `Declined & Withdrawn (%)` = paste0(round((`Declined & Withdrawn` / Total) * 100, 1), "%")
+  ) %>%
+  select(-Total)  # Remove total count column after calculating percentages
+
+# Step 6: Reorder Columns
+status_final_table <- status_percent_table %>%
+  select(
+    Purchasing.Entity.Type, Lot_Application_Group,
+    Accepted, `Accepted (%)`,
+    `In-Progress`, `In-Progress (%)`,
+    `Declined & Withdrawn`, `Declined & Withdrawn (%)`
+  )
+
+# Define the entity types for proper column grouping
+entity_types <- c("Accepted", "In-Progress", "Declined & Withdrawn")
+
+
+# Apply kable formatting
+status_final_table %>%
+  kable(
+    align = c("l", "l", rep("c", 6)),  # Left-align Entity Type & Lot Group, center-align others
+    col.names = NULL  # Remove column names (added via `add_header_above`)
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  # Second header row: Specific columns (Entity Type, Lot Group, Count, Percent, etc.)
+  add_header_above(c("Entity Type" = 1, "Lot Group" = 1, 
+                     "Count" = 1, "Percent" = 1, 
+                     "Count" = 1, "Percent" = 1, 
+                     "Count" = 1, "Percent" = 1)) %>%
+  
+  # Top header: Main application status groups
+  add_header_above(c(" " = 2, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2)) %>%
+
+  # Ensure all columns except the first two are center-aligned
+  column_spec(1, width = "20em") %>%
+  column_spec(3:ncol(status_final_table), width = "6em", extra_css = "text-align: center;")
+
+rm(status_count_table, status_percent_table, status_pivot_count_table, status_final_table, total_counts)
+
+```
+CLEAN
+
+The LLCs behaving differently from the other types is also clear on this table, just in terms of acceptance rate.
+None of the other entity types show a stark difference in acceptance by organizations that are able to apply for multiple lots, implying there's no inherent advantage for the larger groups in the program.
+In each non-LLC entity type the acceptance rate of those with more than 1 lot application is actually lower than those with only 1 lot.
+There are still a number of "In-Progress" applications for all types here, so it's possible this observation could change with updated data.
+
+## Property Application Type
+
+```{r, property type}
+# Step 2: Define the correct order for Application.Type
+application_type_order <- c("Open Space", "Side Yard", "Market Rate Housing", "Affordable Housing", "Commercial Development", "Urban Agriculture", "Other")
+
+data_clean <- data_clean %>%
+  mutate(Application.Type = factor(Application.Type, levels = application_type_order))
+
+# Step 1: Calculate total counts and percentages
+application_type_counts <- data_clean %>%
+  count(Application.Type) %>%
+  mutate(Percent = (n / sum(n)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with adjusted layout
+ggplot(application_type_counts, aes(x = fct_reorder(Application.Type, -n), y = Percent)) +  
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Show % above bars
+  geom_text(aes(label = n, y = 0), vjust = 1.5) +  # Keep raw count above the x-axis line
+  labs(title = "Count of Applications by Type", 
+       x = "Application Type", 
+       y = "Percent of Applications") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     expand = expansion(mult = c(0.2, 0.5), add = c(0, 0))) +  # Prevents negative y-axis
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.025),  # Adjust x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)  # Expand left margin to fit first label
+  )
+
+rm(application_type_counts)
+
+```
+CLEAN
+
+The Application Type charts reveal there are still a large number of lots applied for with no specific "use type" tagged in the system (502).
+Revisiting the raw data uncovers that a small portion (40) of these were attached to two "Urban Agriculture" application forms included in Windows 2 & 3.
+The remaining 462 records may have a use type present in the CBB in a record that was not provided to GCI.
+
+```{r, property type3, include = FALSE}
+# Step 4: Stacked Bar Chart for Application Type by Application Status
+ggplot(data_clean, aes(x = Application.Type, fill = Application.Status2)) +
+  geom_bar(position = "stack") +
+  labs(title = "Application Type Stacked by Application Status", 
+       x = "Application Type", 
+       y = "Count of Applications", 
+       fill = "Application Status") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +  # Expand by 20% at the top
+  scale_fill_manual(values = c("Accepted" = "lightgreen", "Declined & Withdrawn" = "pink", "In-Progress" = "skyblue")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+CLEAN
+
+Viewing the Application Types by Status reveals Side Yards as having the highest concentration of Accepteds.
+Both Market Rate Housing & "Not Listed" have high volumes of In-Progress applications (in blue).
+The "Not Listed" group makes up most of the two later rounds of applications so the higher presence of In-Progress makes sense for more recent applications.
+Gaining additional data that clarifies the intention of the applicants for those lots will be useful.
+
+Matt Request Table Edit – Application Lot Type
+
+```{r}
+# Step 1: Calculate counts for each Application.Status2 by Application.Type
+status_count_table <- data_clean %>%
+  group_by(Application.Type, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to wide format (statuses as columns)
+status_count_pivot <- status_count_table %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+ 
+# Step 3: Calculate total applications per Application Type
+status_count_pivot <- status_count_pivot %>%
+  mutate(Total = rowSums(select(., -Application.Type)))
+ 
+# Step 4: Calculate percentages for each status
+status_percent_table <- status_count_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))  # Round to 1 decimal
+ 
+# Step 5: Select only necessary columns from the percent table before joining
+status_percent_table <- status_percent_table %>%
+  select(Application.Type, `Accepted (%)`, `In-Progress (%)`, `Declined & Withdrawn (%)`)
+ 
+# Step 6: Merge Count and Percent into one final table (avoiding .x and .y naming)
+final_table <- status_count_pivot %>%
+  left_join(status_percent_table, by = "Application.Type") %>%
+  select(Application.Type,
+         Accepted, `Accepted (%)`,
+         `In-Progress`, `In-Progress (%)`,
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`,
+         Total)  # Ensure correct order
+
+# Step 7: Add Total (%) column
+final_table <- final_table %>%
+  mutate(`Total (%)` = 100.0)  # Since total is always 100%
+
+# Step 8: Format percentage columns to include "%" symbol
+final_table <- final_table %>%
+  mutate(across(c(`Accepted (%)`, `In-Progress (%)`, `Declined & Withdrawn (%)`, `Total (%)`),
+                ~ paste0(.x, "%")))
+
+# Step 9: Create the formatted table with multi-line headers
+final_table %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), col.names = NULL) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+    add_header_above(c(" " = 1, "Count" = 1, "Percent" = 1,
+                              "Count" = 1, "Percent" = 1,
+                              "Count" = 1, "Percent" = 1,
+                              "Count" = 1, "Percent" = 1)) %>%
+  add_header_above(c("Application Type" = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(2:9, width = "7em", extra_css = "text-align: right;") %>%
+  row_spec(0, align = "left")
+
+rm(status_count_pivot, status_count_table, status_percent_table) 
+
+```
+
+CLEAN
+
+In the data provided, only 33 lot sales involving a built structure have been approved so far (21 market rate housing, 11 affordable housing & 1 commercial development).
+It's possible some of the 45 approved "not listed" developments are types other than side yard or open space and they will increase that count.
+
+```{r}
+# Step 1: Create a summary table by grouping on Application.Type and Purchasing.Entity.Type
+application_type_summary <- data_clean %>%
+  group_by(Application.Type, Purchasing.Entity.Type) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+application_type_crosstable <- application_type_summary %>%
+  pivot_wider(names_from = Purchasing.Entity.Type, values_from = Count, values_fill = 0)
+
+# Step 3: Add percentage columns, rounding to 1 decimal place
+application_type_percent <- application_type_crosstable %>%
+  mutate(across(-Application.Type, ~ round((.x / sum(.x)) * 100, 1), .names = "{.col} (%)"))
+
+# Step 4: Convert all percentage columns to character with "%" suffix
+application_type_percent <- application_type_percent %>%
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%"), .names = "{.col}"))
+
+# Step 5: Manually create the Totals Row
+totals_row <- application_type_crosstable %>%
+  summarise(across(-Application.Type, sum)) %>%
+  mutate(Application.Type = "Total")
+
+# Step 6: Ensure percentage totals are formatted correctly
+for (entity in colnames(application_type_crosstable)[-1]) {  # Skip "Application.Type"
+  percent_col <- paste0(entity, " (%)")
+  if (percent_col %in% colnames(application_type_percent)) {
+    totals_row[[percent_col]] <- "100.0%"  # Assign consistent character format
+  }
+}
+
+# Step 7: Convert all percentage columns in totals_row to character type before binding
+totals_row <- totals_row %>%
+  mutate(across(ends_with("(%)"), as.character))
+
+# Step 8: Bind the Totals Row to the dataset
+application_type_final <- bind_rows(application_type_percent, totals_row)
+
+# Step 9: Ensure correct column order (Count next to Percent)
+ordered_columns <- c("Application.Type", 
+                     rbind(colnames(application_type_crosstable)[-1], 
+                           paste0(colnames(application_type_crosstable)[-1], " (%)"))) %>% as.vector()
+
+application_type_final <- application_type_final %>%
+  dplyr::select(all_of(ordered_columns))  # Ensure correct column order
+
+# Define entity types in the correct order
+entity_types <- c("For-Profit Organization", "Non-Profit Organization", "Sole Proprietor/Individual", 
+                  "Limited Liability Company (LLC)", "Not Provided")
+
+# Format and Display the Table
+application_type_final %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c", "c", "c"), col.names = NULL) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c("Application Type" = 1, rep(c("Count", "Percent"), length(entity_types)))) %>%
+  add_header_above(c(" " = 1, "For-Profit Organization" = 2, "Non-Profit Organization" = 2, 
+                     "Sole Proprietor/Individual" = 2, "Limited Liability Company (LLC)" = 2, "Not Provided" = 2)) %>%
+  column_spec(2:11, width = "7em", extra_css = "text-align: right;") %>%
+  row_spec(nrow(application_type_final), bold = TRUE)  # Bold the totals row
+
+rm(application_type_crosstable, application_type_final, application_type_percent, application_type_summary)
+
+```
+
+CLEAN
+
+## Date Submitted/Application Window
+
+There are three rounds of ChiBlockBuilder applications represented in this dataset.
+The first was officially open from 11/17/22 - 2/3/23, although the dataset provided shows "date submitted" values stretching through the end of May '23.
+The "date submitted" field also shows an overwhelmingly large number of the applications from this round on the last day of the window (2/3/23).
+We believe this field is being utilized internally to track updates to applications and that is not the actual date submitted for most of those.
+
+```{r, phase timelines}
+
+# Step 4: Filter out rows that are not part of any window
+data_clean_window <- data_clean %>%
+  filter(!is.na(Application_Window))
+
+# Step 5: Group by Date.Submitted, Application_Window, and Entity_Type_Group to count the number of lots per day in each window
+daily_lots_by_window <- data_clean_window %>%
+  group_by(Date.Submitted, Application_Window, Entity_Type_Group) %>%
+  summarise(Lots_Per_Day = n()) %>%
+  ungroup()
+
+# Step 6: Create separate bar charts for each window
+window_1 <- ggplot(daily_lots_by_window %>% filter(Application_Window == "Window 1, Nov '22 - May '23"),
+                   aes(x = Date.Submitted, y = Lots_Per_Day, fill = Entity_Type_Group)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Sole Proprietor/Individual" = "#1f77b4", "All Others" = "#ff7f0e")) +  # Custom colors
+  labs(title = "Window 1: Nov '22 - May '23", x = "Date Submitted", y = "Number of Lots Submitted", fill = "Entity Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+window_2 <- ggplot(daily_lots_by_window %>% filter(Application_Window == "Window 2, Nov '23 - Jan '24"),
+                   aes(x = Date.Submitted, y = Lots_Per_Day, fill = Entity_Type_Group)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Sole Proprietor/Individual" = "#1f77b4", "All Others" = "#ff7f0e")) +
+  labs(title = "Window 2: Nov '23 - Jan '24", x = "Date Submitted", y = "Number of Lots Submitted", fill = "Entity Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+window_3 <- ggplot(daily_lots_by_window %>% filter(Application_Window == "Window 3, March '24 - July '24"),
+                   aes(x = Date.Submitted, y = Lots_Per_Day, fill = Entity_Type_Group)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Sole Proprietor/Individual" = "#1f77b4", "All Others" = "#ff7f0e")) +
+  labs(title = "Window 3: March '24 - July '24", x = "Date Submitted", y = "Number of Lots Submitted", fill = "Entity Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Window 1: Nov '22 - May '23
+entity_table_window1 <- data_clean_window %>%
+  filter(Application_Window == "Window 1, Nov '22 - May '23") %>%
+  group_by(Purchasing.Entity.Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+application_table_window1 <- data_clean_window %>%
+  filter(Application_Window == "Window 1, Nov '22 - May '23") %>%
+  group_by(Application.Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+# Display Window 1 chart and tables
+print(window_1)
+```
+
+1,797 lots were applied for in Phase 1, accounting for 76.8% of the lots between the 3 phases.
+
+```{r, phase timelines2}
+entity_table_window1 %>%
+  kable(col.names = c("Purchasing Entity Type", "Count"), caption = "Entity Type Summary for Window 1")
+application_table_window1 %>%
+  kable(col.names = c("Application Lot Type", "Count"), caption = "Lot Type Summary for Window 1")
+
+```
+
+All of the applications from Phase 1 have an Application Type identified.
+While 167 of the Purchasing Entities from Phase 1 are "Not Provided", the majority of the entities in this round are identified.
+
+116 of the total 121 LLCs are represented in Phase 1.
+Only one of those LLCs from Phase 1 is not an application for a Side Yard.
+
+```{r, window 2}
+# Window 2: Nov '23 - Jan '24
+entity_table_window2 <- data_clean_window %>%
+  filter(Application_Window == "Window 2, Nov '23 - Jan '24") %>%
+  group_by(Purchasing.Entity.Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+application_table_window2 <- data_clean_window %>%
+  filter(Application_Window == "Window 2, Nov '23 - Jan '24") %>%
+  group_by(Application.Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+# Display Window 2 chart and tables
+print(window_2)
+entity_table_window2 %>%
+  kable(col.names = c("Purchasing Entity Type", "Count"), caption = "Entity Type Summary for Window 2")
+application_table_window2 %>%
+  kable(col.names = c("Application Lot Type", "Count"), caption = "Lot Type Summary for Window 2")
+```
+
+114 lots were applied for in Phase 2 (4.8%), and the majority of them do not have a lot type identified.
+
+```{r, window 3}
+# Window 3: March '24 - July '24
+entity_table_window3 <- data_clean_window %>%
+  filter(Application_Window == "Window 3, March '24 - July '24") %>%
+  group_by(Purchasing.Entity.Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+application_table_window3 <- data_clean_window %>%
+  filter(Application_Window == "Window 3, March '24 - July '24") %>%
+  group_by(Application.Type) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+# Display Window 3 chart and tables
+print(window_3)
+entity_table_window3 %>%
+  kable(col.names = c("Purchasing Entity Type", "Count"), caption = "Entity Type Summary for Window 3")
+application_table_window3 %>%
+  kable(col.names = c("Application Lot Type", "Count"), caption = "Lot Type Summary for Window 3")
+
+```
+
+448 lots were applied for in Phase 3 (19%), and again the majority of them do not have a lot type identified.
+
+# Demographic Data of Applicants
+
+## Unique Individuals
+
+```{r unique names count, eval=FALSE}
+unique_names_count <- n_distinct(data_clean$Name.Key)
+unique_names_count  # This will print the total number of unique names
+
+# Filter to Sole Proprietor/Individual and calculate the number of unique names
+unique_solep_count <- data_clean %>%
+  filter(Purchasing.Entity.Type == "Sole Proprietor/Individual") %>%
+  summarise(unique_names = n_distinct(Name.Key))
+
+unique_solep_count  # This will print the number of unique names
+
+```
+
+There are 1,261 unique names making up the 2,359 applications, although many of those are attached to organizations.
+Filtering to only the sole proprietors/individuals reduces the number of unique individuals to 860.
+
+The following demographic charts cover those 860 applicants who applied as "Individual/Sole Proprietor", and they account for 1,339 lots.
+598 individuals consistently did not provide any demographic responses in this section on their applications.
+
+The demographic data provided is not always consistent, some applicants with multiple entries may have provided conflicting information on individual applications.
+
+First, a check to see if the 598 individuals not providing any demographic responses are concentrated within specific application windows.
+
+```{r}
+
+data_clean %>% count(Purchasing.Entity.Type)
+
+data_clean_indiv <- data_clean %>%
+  filter(Purchasing.Entity.Type == "Sole Proprietor/Individual")
+
+#test round distribution of Not Provided individuals
+
+data_clean_notprovided <- data_clean_indiv %>%
+  filter(Gender.Identity == "Not Provided")
+
+data_clean_notprovided_summary <- data_clean_notprovided %>%
+  group_by(Application_Window) %>%
+  summarise(Count = n())  # Count entries in each window
+
+ggplot(data_clean_notprovided_summary, aes(x = Application_Window, y = Count)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5) +  # Add count labels above the bars
+  labs(title = "Not Provided distribution across 3 Application Windows", 
+       x = "Application Window", 
+       y = "Count of Responses") +
+  theme_minimal() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +  # Expand by 10% at the top
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Explore Acceptance Rate of Demographic "Not Provided" vs those that did provide for discrepancies.
+
+```{r}
+# Step 1: Create an identifier for whether demographic info was provided
+data_clean <- data_clean %>%
+  mutate(Demos.Provided = if_else(Gender.Identity == "Not Provided", "Not Provided", "Provided"))
+
+# Step 2: Filter to Sole Proprietor/Individual applications only
+sole_prop_data <- data_clean %>%
+  filter(Purchasing.Entity.Type == "Sole Proprietor/Individual")
+
+# Step 3: Group by Demos.Provided and Application.Status2, then calculate counts
+status_demo_table <- sole_prop_data %>%
+  group_by(Demos.Provided, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 4: Pivot wider so each Application.Status2 is a separate column
+status_demo_pivot <- status_demo_table %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0) %>%
+  adorn_totals(name = "Total", where = "row") # Add total row for context
+
+# Step 5: Calculate row-wise percentages
+status_demo_pivot <- status_demo_pivot %>%
+  mutate(
+    row_sum = rowSums(select(., -Demos.Provided)),  # Total applications per row
+    `Accepted (%)` = (Accepted / row_sum) * 100,
+    `In-Progress (%)` = (`In-Progress` / row_sum) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / row_sum) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) %>%
+  select(Demos.Provided, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         row_sum, `Total (%)`)  # Keep total counts and percentages at the end
+
+# Step 6: Round values for presentation and ensure percentage formatting
+status_demo_pivot <- status_demo_pivot %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 7: Display as a table
+status_demo_pivot %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
+    col.names = c("Demographic Info Provided", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Total", "Percent"),
+    caption = "Application Status for Sole Proprietor/Individual by Demographic Information Provided"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(2:9, width = "7em", extra_css = "text-align: right;") %>%
+  row_spec(nrow(status_demo_pivot), bold = TRUE)  # Bold the totals row
+
+```
+All Sole Proprietor/Individuals had demographic responses. "Not Provided" exploration no longer valid. 
+
+```{r}
+# Step 1: Group by Demos.Provided and Application.Type to count applications
+app_type_demo_table <- sole_prop_data %>%
+  group_by(Demos.Provided, Application.Type) %>%
+  summarise(Total_Applications = n(), .groups = "drop")
+
+# Step 2: Calculate percentages within each Demos.Provided group
+app_type_demo_table <- app_type_demo_table %>%
+  group_by(Demos.Provided) %>%
+  mutate(Percent = (Total_Applications / sum(Total_Applications)) * 100) %>%
+  ungroup()
+
+# Step 3: Pivot wider so that Provided & Not Provided are columns
+app_type_pivot <- app_type_demo_table %>%
+  pivot_wider(names_from = Demos.Provided, values_from = c(Total_Applications, Percent), values_fill = 0)
+
+# Step 4: Round percentage values
+app_type_pivot <- app_type_pivot %>%
+  mutate(across(starts_with("Percent_"), ~ round(.x, 2)))
+
+# Step 5: Display as a table -- TABLE NO LONGER NECESSARY
+#app_type_pivot %>%
+#  kable(col.names = c("Application Type", 
+#                      "Total Not Provided", "Total Provided", 
+#                      "% Not Provided", "% Provided"),
+#        caption = "Application Type Breakdown by Demographic Info Provided")
+```
+
+```{r}
+# Step 1: Count applications by Application.Type, Demos.Provided, and Application.Status2
+app_status_table <- sole_prop_data %>%
+  group_by(Application.Type, Demos.Provided, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to get counts of Accepted, In-Progress, and Declined & Withdrawn
+app_status_pivot <- app_status_table %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 3: Calculate acceptance rate
+app_status_pivot <- app_status_pivot %>%
+  mutate(Total = rowSums(select(., -Application.Type, -Demos.Provided)),
+         Acceptance_Rate = (Accepted / Total) * 100) %>%
+  select(Application.Type, Demos.Provided, Acceptance_Rate)
+
+# Step 4: Pivot wider so that Demos.Provided groups are columns
+acceptance_pivot <- app_status_pivot %>%
+  pivot_wider(names_from = Demos.Provided, values_from = Acceptance_Rate, values_fill = NA)
+
+# Step 5: Round percentages
+acceptance_pivot <- acceptance_pivot %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+# Step 6: Display table with correct column labels -- NO LONGER NEEDED
+#acceptance_pivot %>%
+#  kable(col.names = c("Application Type", "Accepted % (Not Provided)", "Accepted % (Provided)"),
+#        caption = "Acceptance Rate by Application Type and Demographic Info Provided")
+
+```
+
+### Race
+
+```{r}
+
+unique_name_race_count <- data_clean_indiv %>%
+  distinct(Name.Key, Applicant.Race) %>%
+  count()
+#unique_name_race_count
+```
+
+Of the 809 individuals there are 835 name:race combinations.
+Some of the duplication comes from individuals who selected a race on one application and left the field blank on another.
+Some applicants identifying with multiple races selected each response and the field may have represented those selections in the order they were entered.
+For example, these 3 entries are the same individual:
+
+Black or African American Native American or Alaskan Native Asian or Pacific Islander
+
+Black or African American Native American or Alaskan Native Asian or Pacific Islander
+
+Black or African American Asian or Pacific Islander Native American or Alaskan Native
+
+We have cleaned the data to account for those irregularities within individuals when the reponses are the same despite having a different order.
+
+```{r}
+# Define possible race responses
+race_responses <- c("Black or African American", 
+                    "Native American or Alaskan Native", 
+                    "Asian or Pacific Islander", 
+                    "White or Caucasian", 
+                    "I prefer not to answer", 
+                    "I identify as a race that is not listed here")
+
+# Initialize an empty data frame to store the counts
+race_counts <- data.frame(Race = character(), Count = integer(), stringsAsFactors = FALSE)
+
+view(data_clean_indiv)
+
+#filter out "Not Provided"
+#data_clean_indiv <- data_clean_indiv %>%
+#  filter(Applicant.Race != "Not Provided")
+
+# Loop over each race response and count occurrences using str_detect
+for (race in race_responses) {
+  count <- data_clean_indiv %>%
+    filter(str_detect(Applicant.Race, race)) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+  
+  race_counts <- rbind(race_counts, data.frame(Race = race, Count = count))
+}
+
+# Generate a bar chart to visualize race counts
+ggplot(race_counts, aes(x = reorder(Race, -Count), y = Count)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5) +  # Add count labels above the bars
+  labs(title = "Race Distribution of Sole Proprietor/Individual Applicants", 
+       x = "Race", 
+       y = "Count of Responses") +
+  theme_minimal() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +  # Expand by 10% at the top
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+As individuals can identify as more than one race, the total of the columns above (1,362) exceeds the number of applications filed by sole proprietors/individuals (1,339).
+
+Race Acceptance Rate
+
+```{r}
+# Initialize an empty data frame to store results
+race_acceptance <- data.frame(Race = character(), Acceptance_Percent = numeric(), stringsAsFactors = FALSE)
+
+# Loop over each race response and calculate acceptance percentage
+for (race in race_responses) {
+  
+  # Filter for total applications matching this race
+  total_apps <- data_clean_indiv %>%
+    filter(str_detect(Applicant.Race, race)) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+  
+  # Filter for accepted applications matching this race
+  accepted_apps <- data_clean_indiv %>%
+    filter(str_detect(Applicant.Race, race) & Application.Status2 == "Accepted") %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+  
+  # Calculate acceptance rate
+  acceptance_rate <- ifelse(total_apps > 0, (accepted_apps / total_apps) * 100, NA)
+  
+  # Append to results data frame
+  race_acceptance <- rbind(race_acceptance, data.frame(Race = race, Acceptance_Percent = round(acceptance_rate, 2)))
+}
+
+# Display the results as a table
+race_acceptance %>%
+  kable(col.names = c("Race", "Acceptance Rate (%)"),
+        caption = "Acceptance Rate by Race")
+
+```
+
+### Gender
+
+```{r}
+# Define possible gender responses
+gender_responses <- c("Female", 
+                      "Male", 
+                      "Gender Non-Conforming/Non-Binary/Gender Queer", 
+                      "Transgender", 
+                      "I identify as a gender that is not listed here", 
+                      "I prefer not to answer")
+
+# Initialize an empty data frame to store the counts for gender
+gender_counts <- data.frame(Gender = character(), Count = integer(), stringsAsFactors = FALSE)
+
+#filter out "Not Provided"
+#data_clean_indiv <- data_clean_indiv %>%
+#  filter(Applicant.Race != "Not Provided")
+
+# Loop over each gender response and count occurrences using str_detect
+for (gender in gender_responses) {
+  count <- data_clean_indiv %>%
+    filter(str_detect(Gender.Identity, gender)) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+  
+  gender_counts <- rbind(gender_counts, data.frame(Gender = gender, Count = count))
+}
+
+# Generate a bar chart to visualize gender counts
+ggplot(gender_counts, aes(x = reorder(Gender, -Count), y = Count)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5) +  # Add count labels above the bars
+  labs(title = "Gender Distribution of Sole Proprietor/Individual Applicants", 
+       x = "Gender", 
+       y = "Count of Responses") +
+  theme_minimal() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +  # Expand by 10% at the top
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Step 1: Calculate total counts and percentages
+gender_counts <- gender_counts %>%
+  mutate(Percent = (Count / sum(Count)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with improved layout
+ggplot(gender_counts, aes(x = fct_reorder(Gender, -Count), y = Percent)) +  
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Show % above bars
+  geom_text(aes(label = Count, y = 0), vjust = 1.2) +  # Raw count below x-axis labels
+  labs(title = "Gender Distribution of Sole Proprietor/Individual Applicants", 
+       x = "Gender", 
+       y = "Percent of Responses") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     expand = expansion(mult = c(0.2, 0.5), add = c(0, 0))) +  # Prevents negative y-axis
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.015),  # Lower x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 55)  # Slightly increase left margin
+  )
+
+
+```
+
+Gender Acceptance Rate
+
+```{r}
+# Step 1: Assign a single gender category per applicant based on hierarchy
+data_clean_indiv <- data_clean_indiv %>%
+  mutate(Gender_Simplified = case_when(
+    str_detect(Gender.Identity, "Transgender") ~ "Transgender",
+    str_detect(Gender.Identity, "Male") ~ "Male",
+    str_detect(Gender.Identity, "Female") ~ "Female",
+    str_detect(Gender.Identity, "Gender Non-Conforming/Non-Binary/Gender Queer") ~ "Gender Non-Conforming/Non-Binary/Gender Queer",
+    str_detect(Gender.Identity, "I identify as a gender that is not listed here") ~ "I identify as a gender that is not listed here",
+    str_detect(Gender.Identity, "I prefer not to answer") ~ "I prefer not to answer",
+    TRUE ~ "Not Provided"
+  ))
+
+# Step 2: Create a summary table by grouping on Gender_Simplified and Application.Status2
+gender_status_summary <- data_clean_indiv %>%
+  group_by(Gender_Simplified, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 3: Pivot the table to create a crosstable
+gender_status_pivot <- gender_status_summary %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 4: Calculate total applications per gender category
+gender_status_pivot <- gender_status_pivot %>%
+  mutate(Total = rowSums(select(., -Gender_Simplified)))
+
+# Step 5: Calculate percentages for each status
+gender_status_percent <- gender_status_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) 
+
+# Step 6: Ensure rounding and percentage formatting
+gender_status_percent <- gender_status_percent %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 7: Manually create the Totals Row
+totals_row <- gender_status_pivot %>%
+  summarise(across(-Gender_Simplified, sum)) %>%
+  mutate(Gender_Simplified = "Total")
+
+# Step 7.1: Append "100.0%" manually to all percentage columns
+for (col in c("Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)", "Total (%)")) {
+  totals_row[[col]] <- "100.0%"  # Explicitly set to "100.0%" for all status columns
+}
+
+# Step 8: Append the Totals Row to the dataset
+gender_status_final <- bind_rows(gender_status_percent, totals_row)
+
+# Step 9: Define correct ordering for gender categories
+gender_order <- c(
+  "Male", 
+  "Female", 
+  "I prefer not to answer", 
+  "Gender Non-Conforming/Non-Binary/Gender Queer", 
+  "I identify as a gender that is not listed here", 
+  "Transgender",
+  "Total"
+)
+
+# Ensure proper order
+gender_status_final <- gender_status_final %>%
+  mutate(Gender_Simplified = factor(Gender_Simplified, levels = gender_order)) %>%
+  arrange(Gender_Simplified)
+
+# Step 10: Reorder columns to interleave count and percentage
+gender_status_final <- gender_status_final %>%
+  select(Gender_Simplified, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         Total, `Total (%)`)  # Ensure alternating columns
+
+# Step 11: Format and Display the Table
+gender_status_final %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
+    col.names = c("Gender", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Total", "Percent"),
+    caption = "Application Status by Gender"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "left", 
+                font_size = 12,  # Ensures text fits correctly
+                latex_options = "scale_down") %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(1, width = "30em") %>%  # Expands first column width
+  column_spec(2:9, width = "7em") %>%  # Ensures readability without forced equal column widths
+  row_spec(nrow(gender_status_final), bold = TRUE)  # Bold the totals row
+
+```
+
+### Hispanic
+
+```{r}
+# Count the occurrences of each response
+hispanic_counts <- data_clean_indiv %>%
+  filter(hispanic %in% c("Hispanic or Latino/Latina/Latinx", 
+                         "I prefer not to answer", 
+                         "Not Hispanic or Latino/Latina/Latinx")) %>%
+  group_by(hispanic) %>%
+  summarise(Count = n())
+
+#filter out "Not Provided"
+#data_clean_indiv <- data_clean_indiv %>%
+#  filter(Applicant.Race != "Not Provided")
+
+# Calculate the percentage of Hispanic (excluding "I prefer not to answer" and "Not Provided")
+hispanic_percentage <- data_clean_indiv %>%
+  filter(hispanic %in% c("Hispanic or Latino/Latina/Latinx", "Not Hispanic or Latino/Latina/Latinx")) %>%
+  summarise(
+    Hispanic_Count = sum(hispanic == "Hispanic or Latino/Latina/Latinx"),
+    Total_Provided = n(),
+    Percent_Hispanic = (Hispanic_Count / Total_Provided) * 100
+  ) %>%
+  pull(Percent_Hispanic)
+
+# Add the percentage Hispanic row to the dataset
+hispanic_counts <- rbind(hispanic_counts, data.frame(hispanic = "% Hispanic (of those who provided response)", Count = round(hispanic_percentage, 2)))
+
+# Reorder the rows 
+hispanic_counts <- hispanic_counts %>%
+  arrange(factor(hispanic, levels = c("Not Provided", "I prefer not to answer", "Not Hispanic or Latino/Latina/Latinx", "Hispanic or Latino/Latina/Latinx", "% Hispanic (of those who provided response)")))
+
+hispanic_counts <- hispanic_counts %>%
+  mutate(Count = ifelse(hispanic == "% Hispanic (of those who provided response)", 
+                        format(Count, nsmall = 2), 
+                        as.character(Count)))  # Keep other counts as whole numbers
+
+# Use kable to display the hispanic_counts table in a more presentable format
+hispanic_counts %>%
+  kable(
+    caption = "Hispanic Counts and Percentage Breakdown",
+    col.names = c("Hispanic Status", "Count"),
+    align = c("l", "r"),
+    format = "markdown"  # Or "html" for HTML output
+  )
+
+```
+
+Hispanic Acceptance Rate
+
+```{r}
+# Initialize an empty data frame to store results
+hispanic_acceptance <- data.frame(Hispanic_Status = character(), Acceptance_Percent = numeric(), stringsAsFactors = FALSE)
+
+# Define Hispanic response categories
+hispanic_responses <- c("Hispanic or Latino/Latina/Latinx", 
+                         "I prefer not to answer", 
+                         "Not Provided", 
+                         "Not Hispanic or Latino/Latina/Latinx")
+
+# Loop over each Hispanic response and calculate acceptance percentage
+for (hispanic_label in hispanic_responses) {  
+
+  # Filter for total applications matching this Hispanic response
+  total_apps <- data_clean_indiv %>%
+    filter(hispanic == hispanic_label) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Filter for accepted applications matching this Hispanic response
+  accepted_apps <- data_clean_indiv %>%
+    filter(hispanic == hispanic_label & Application.Status2 == "Accepted") %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Calculate acceptance rate
+  acceptance_rate <- ifelse(total_apps > 0, (accepted_apps / total_apps) * 100, NA)
+
+  # Append to results data frame
+  hispanic_acceptance <- rbind(hispanic_acceptance, data.frame(Hispanic_Status = hispanic_label, Acceptance_Percent = round(acceptance_rate, 2)))
+}
+
+# Display the results as a table
+hispanic_acceptance %>%
+  kable(col.names = c("Hispanic Status", "Acceptance Rate (%)"),
+        caption = "Acceptance Rate by Hispanic Status")
+
+```
+
+### LGBTQIA
+
+```{r}
+unique_name_lgbtqia_count <- data_clean %>%
+  distinct(Name.Key, LGBTQIA) %>%
+  count()
+
+# Step 1: Define possible responses
+lgbtqia_responses <- c("I prefer not to answer", 
+                       "No, I do NOT identify as part of the LGBTQIA community", 
+                       "Yes, I identify as part of the LGBTQIA community")
+
+#filter out "Not Provided"
+#data_clean_indiv <- data_clean_indiv %>%
+#  filter(Applicant.Race != "Not Provided")
+
+# Step 2: Count the occurrences of each response
+lgbtqia_counts <- data_clean_indiv %>%
+  filter(LGBTQIA %in% lgbtqia_responses) %>%
+  group_by(LGBTQIA) %>%
+  summarise(Count = n())
+
+# Step 3: Calculate the percentage of LGBTQIA (excluding "I prefer not to answer" and "Not Provided")
+lgbtqia_percentage <- data_clean_indiv %>%
+  filter(LGBTQIA %in% c("Yes, I identify as part of the LGBTQIA community", "No, I do NOT identify as part of the LGBTQIA community")) %>%
+  summarise(
+    LGBTQIA_Yes_Count = sum(LGBTQIA == "Yes, I identify as part of the LGBTQIA community"),
+    Total_Provided = n(),
+    Percent_LGBTQIA = (LGBTQIA_Yes_Count / Total_Provided) * 100
+  ) %>%
+  pull(Percent_LGBTQIA)
+
+# Step 4: Add the percentage LGBTQIA row to the dataset
+lgbtqia_counts <- rbind(lgbtqia_counts, data.frame(LGBTQIA = "% LGBTQIA (of those who provided response)", Count = round(lgbtqia_percentage, 2)))
+
+# Step 5: Reorder the rows as requested
+lgbtqia_counts <- lgbtqia_counts %>%
+  arrange(factor(LGBTQIA, levels = c("Not Provided", "I prefer not to answer", "No, I do NOT identify as part of the LGBTQIA community", "Yes, I identify as part of the LGBTQIA community", "% LGBTQIA (of those who provided response)")))
+
+# Step 6: Format the Count column: no decimals for counts, two decimals for Percent_LGBTQIA
+lgbtqia_counts <- lgbtqia_counts %>%
+  mutate(Count = ifelse(LGBTQIA == "% LGBTQIA (of those who provided response)", 
+                        format(Count, nsmall = 2), 
+                        as.character(Count)))  # Keep other counts as whole numbers
+
+# Use kable to display the counts table in a more presentable format
+lgbtqia_counts %>%
+  kable(
+    caption = "LGBTQIA Counts and Percentage Breakdown",
+    col.names = c("LGBTQIA Status", "Count"),
+    align = c("l", "r"),
+    format = "markdown"  # Or "html" for HTML output
+  )
+
+# Step 1: Calculate total counts and percentages
+lgbtqia_counts <- data_clean_indiv %>%
+  filter(LGBTQIA %in% c("I prefer not to answer", 
+                        "No, I do NOT identify as part of the LGBTQIA community", 
+                        "Yes, I identify as part of the LGBTQIA community")) %>%
+  count(LGBTQIA) %>%
+  mutate(Percent = (n / sum(n)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with updated layout
+ggplot(lgbtqia_counts, aes(x = fct_relevel(LGBTQIA, 
+                                           "I prefer not to answer", 
+                                           "No, I do NOT identify as part of the LGBTQIA community", 
+                                           "Yes, I identify as part of the LGBTQIA community"), 
+                           y = Percent)) +  
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Show % above bars
+  geom_text(aes(label = n, y = -5), vjust = 0.4) +  # Raw count below x-axis labels
+  labs(title = "LGBTQIA Identity Distribution of Sole Proprietor/Individual Applicants", 
+       x = "LGBTQIA Identity", 
+       y = "Percent of Responses") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     limits = c(-10, 100),  # Extends slightly below 0 for count visibility
+                     expand = expansion(mult = c(0, 0.1))) +  # Prevents excess space
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1),  # Adjust x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)  # Expand left margin to fit first label
+  )
+
+
+
+```
+
+LGBTQIA Acceptance
+
+```{r}
+# Initialize an empty data frame to store results
+lgbtqia_acceptance <- data.frame(LGBTQIA_Status = character(), Acceptance_Percent = numeric(), stringsAsFactors = FALSE)
+
+# Define LGBTQIA response categories
+lgbtqia_responses <- c("I prefer not to answer", 
+                        "Not Provided", 
+                        "No, I do NOT identify as part of the LGBTQIA community", 
+                        "Yes, I identify as part of the LGBTQIA community")
+
+# Loop over each LGBTQIA response and calculate acceptance percentage
+for (lgbtqia_label in lgbtqia_responses) {  
+
+  # Filter for total applications matching this LGBTQIA response
+  total_apps <- data_clean_indiv %>%
+    filter(LGBTQIA == lgbtqia_label) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Filter for accepted applications matching this LGBTQIA response
+  accepted_apps <- data_clean_indiv %>%
+    filter(LGBTQIA == lgbtqia_label & Application.Status2 == "Accepted") %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Calculate acceptance rate
+  acceptance_rate <- ifelse(total_apps > 0, (accepted_apps / total_apps) * 100, NA)
+
+  # Append to results data frame
+  lgbtqia_acceptance <- rbind(lgbtqia_acceptance, data.frame(LGBTQIA_Status = lgbtqia_label, Acceptance_Percent = round(acceptance_rate, 2)))
+}
+
+# Display the results as a table
+lgbtqia_acceptance %>%
+  kable(col.names = c("LGBTQIA Status", "Acceptance Rate (%)"),
+        caption = "Acceptance Rate by LGBTQIA Status")
+
+
+```
+
+```{r}
+# Step 1: Create a summary table by grouping on LGBTQIA and Application.Status2
+lgbtqia_status_summary <- data_clean_indiv %>%
+  group_by(LGBTQIA, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+lgbtqia_status_pivot <- lgbtqia_status_summary %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 3: Calculate total applications per LGBTQIA category
+lgbtqia_status_pivot <- lgbtqia_status_pivot %>%
+  mutate(Total = rowSums(select(., -LGBTQIA)))
+
+# Step 4: Calculate percentages for each status
+lgbtqia_status_percent <- lgbtqia_status_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) 
+
+# Step 5: Ensure rounding and percentage formatting
+lgbtqia_status_percent <- lgbtqia_status_percent %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 6: Manually create the Totals Row
+totals_row <- lgbtqia_status_pivot %>%
+  summarise(across(-LGBTQIA, sum)) %>%
+  mutate(LGBTQIA = "Total")
+
+# Step 6.1: Append "100.0%" manually to all percentage columns
+for (col in c("Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)", "Total (%)")) {
+  totals_row[[col]] <- "100.0%"  # Explicitly set to "100.0%" for all status columns
+}
+
+# Step 7: Append the Totals Row to the dataset
+lgbtqia_status_final <- bind_rows(lgbtqia_status_percent, totals_row)
+
+# Step 8: Define correct ordering for LGBTQIA response categories
+lgbtqia_responses <- c(
+  "Yes, I identify as part of the LGBTQIA community", 
+  "No, I do NOT identify as part of the LGBTQIA community", 
+  "I prefer not to answer", 
+  "Not Provided",
+  "Total"
+)
+
+# Ensure proper order
+lgbtqia_status_final <- lgbtqia_status_final %>%
+  mutate(LGBTQIA = factor(LGBTQIA, levels = lgbtqia_responses)) %>%
+  arrange(LGBTQIA)
+
+# Step 9: Reorder columns to interleave count and percentage
+lgbtqia_status_final <- lgbtqia_status_final %>%
+  select(LGBTQIA, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         Total, `Total (%)`)  # Ensure alternating columns
+
+# Step 10: Format and Display the Table
+lgbtqia_status_final %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
+    col.names = c("LGBTQIA Status", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Total", "Percent"),
+    caption = "Application Status by LGBTQIA Status"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "left", 
+                font_size = 9,  
+                latex_options = "scale_down") %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(1, width = "20em", extra_css = "min-width: 20em; max-width: 20em; text-align: left;") %>%  # Forces wider first column
+  column_spec(2:9, width = "4em", extra_css = "min-width: 4em; max-width: 4em; text-align: right;") %>%  # Keeps other columns narrow
+  row_spec(nrow(lgbtqia_status_final), bold = TRUE)  # Bold the totals row
+
+```
+
+### Age
+
+```{r}
+
+# Create the bar chart for Age
+ggplot(data_clean_indiv, aes(x = age)) +
+  geom_bar() +
+  geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5) +  # Add count labels at the top of each bar
+  labs(title = "Count of Applications by Age Group", 
+       x = "Age Group", 
+       y = "Count of Applications") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +  # Expand by 10% at the top
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Step 1: Calculate total counts and percentages
+age_counts <- data_clean_indiv %>%
+  count(age) %>%
+  mutate(Percent = (n / sum(n)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with updated layout
+ggplot(age_counts, aes(x = age, y = Percent)) +  
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Show % above bars
+  geom_text(aes(label = n, y = 0), vjust = 1.2) +  # Raw count below x-axis labels
+  labs(title = "Count of Applications by Age Group", 
+       x = "Age Group", 
+       y = "Percent of Applications") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     expand = expansion(mult = c(0.2, 0.5), add = c(0, 0))) +  # Prevents negative y-axis
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.015),  # Lower x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 55)  # Slightly increase left margin
+  )
+
+
+```
+
+Age Acceptance
+
+```{r}
+# Initialize an empty data frame to store results
+age_acceptance <- data.frame(Age_Group = character(), Acceptance_Percent = numeric(), stringsAsFactors = FALSE)
+
+# Get unique age groups from the dataset
+age_groups <- unique(data_clean_indiv$age)
+
+# Loop over each age group and calculate acceptance percentage
+for (age_label in age_groups) {  
+
+  # Filter for total applications matching this age group
+  total_apps <- data_clean_indiv %>%
+    filter(age == age_label) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Filter for accepted applications matching this age group
+  accepted_apps <- data_clean_indiv %>%
+    filter(age == age_label & Application.Status2 == "Accepted") %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Calculate acceptance rate
+  acceptance_rate <- ifelse(total_apps > 0, (accepted_apps / total_apps) * 100, NA)
+
+  # Append to results data frame
+  age_acceptance <- rbind(age_acceptance, data.frame(Age_Group = age_label, Acceptance_Percent = round(acceptance_rate, 2)))
+}
+
+# Define the desired order for Age_Group
+age_levels <- c("18 - 24", "25 - 34", "35 - 44", "45 - 54", "55 - 64", "65 and over", "I prefer not to answer", "Not Provided")
+
+# Convert Age_Group to a factor with the defined order
+age_acceptance <- age_acceptance %>%
+  mutate(Age_Group = factor(Age_Group, levels = age_levels)) %>%
+  arrange(Age_Group)
+
+# Display the reordered table
+age_acceptance %>%
+  kable(col.names = c("Age Group", "Acceptance Rate (%)"),
+        caption = "Acceptance Rate by Age Group")
+
+
+```
+
+```{r}
+# Step 1: Create a summary table by grouping on Age and Application.Status2
+age_status_summary <- data_clean_indiv %>%
+  group_by(age, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+age_status_pivot <- age_status_summary %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 3: Calculate total applications per age category
+age_status_pivot <- age_status_pivot %>%
+  mutate(Total = rowSums(select(., -age)))
+
+# Step 4: Calculate percentages for each status
+age_status_percent <- age_status_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) 
+
+# Step 5: Ensure rounding and percentage formatting
+age_status_percent <- age_status_percent %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 6: Manually create the Totals Row
+totals_row <- age_status_pivot %>%
+  summarise(across(-age, sum)) %>%
+  mutate(age = "Total")
+
+# Step 6.1: Append "100.0%" manually to all percentage columns
+for (col in c("Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)", "Total (%)")) {
+  totals_row[[col]] <- "100.0%"  # Explicitly set to "100.0%" for all status columns
+}
+
+# Step 7: Append the Totals Row to the dataset
+age_status_final <- bind_rows(age_status_percent, totals_row)
+
+# Step 8: Define correct ordering for Age categories
+age_levels <- c(
+  "18 - 24", 
+  "25 - 34", 
+  "35 - 44", 
+  "45 - 54", 
+  "55 - 64", 
+  "65 and over", 
+  "I prefer not to answer",
+  "Not Provided",
+  "Total"
+)
+
+# Ensure proper order
+age_status_final <- age_status_final %>%
+  mutate(age = factor(age, levels = age_levels)) %>%
+  arrange(age)
+
+# Step 9: Reorder columns to interleave count and percentage
+age_status_final <- age_status_final %>%
+  select(age, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         Total, `Total (%)`)  # Ensure alternating columns
+
+# Step 10: Format and Display the Table
+age_status_final %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
+    col.names = c("Age Group", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Total", "Percent"),
+    caption = "Application Status by Age Group"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "left", 
+                font_size = 12,  # Readable but compact
+                latex_options = "scale_down") %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(1, width = "20em") %>%  # First column does not need excessive width
+  column_spec(2:9, width = "7em") %>%  # Keeps other columns compact
+  row_spec(nrow(age_status_final), bold = TRUE)  # Bold the totals row
+
+```
+
+### Income
+
+```{r}
+# Define the correct order for income levels
+income_order <- c("Less than $25,000", 
+                  "$25,000 to $49,999", 
+                  "$50,000 to $74,999", 
+                  "$75,000 to $99,999", 
+                  "$100,000 to $124,999", 
+                  "$125,000 to $149,999", 
+                  "$150,000 or more")
+
+# Reorder income levels
+data_clean_indiv <- data_clean_indiv %>%
+  mutate(income = factor(income, levels = c(income_order, "Not Provided"))) # Reorder levels
+
+# Create the bar chart for income
+ggplot(data_clean_indiv, aes(x = income)) +
+  geom_bar() +
+  geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5) +  # Add count labels at the top of each bar
+  labs(
+    title = "Count of Applications by Income Level", 
+    x = "Income Level", 
+    y = "Count of Applications"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +  # Expand by 10% at the top
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Step 1: Calculate total counts and percentages
+income_counts <- data_clean_indiv %>%
+  count(income) %>%
+  mutate(Percent = (n / sum(n)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with updated layout
+ggplot(income_counts, aes(x = income, y = Percent)) +  # Keep income order as-is
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Show % above bars
+  geom_text(aes(label = n, y = 0), vjust = 1.2) +  # Raw count below x-axis labels
+  labs(
+    title = "Count of Applications by Income Level", 
+    x = "Income Level", 
+    y = "Percent of Applications"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     expand = expansion(mult = c(0.2, 0.5), add = c(0, 0))) +  # Prevents negative y-axis
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.015),  # Lower x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 55)  # Slightly increase left margin
+  )
+
+
+```
+
+Income Acceptance
+
+```{r}
+# Initialize an empty data frame to store results
+income_acceptance <- data.frame(Income_Level = character(), Acceptance_Percent = numeric(), stringsAsFactors = FALSE)
+
+# Define ordered income categories
+income_levels <- c("Less than $25,000", 
+                   "$25,000 to $49,999", 
+                   "$50,000 to $74,999", 
+                   "$75,000 to $99,999", 
+                   "$100,000 to $124,999", 
+                   "$125,000 to $149,999", 
+                   "$150,000 or more", 
+                   "Not Provided")
+
+# Loop over each income level and calculate acceptance percentage
+for (income_label in income_levels) {  
+
+  # Filter for total applications matching this income level
+  total_apps <- data_clean_indiv %>%
+    filter(income == income_label) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Filter for accepted applications matching this income level
+  accepted_apps <- data_clean_indiv %>%
+    filter(income == income_label & Application.Status2 == "Accepted") %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Calculate acceptance rate
+  acceptance_rate <- ifelse(total_apps > 0, (accepted_apps / total_apps) * 100, NA)
+
+  # Append to results data frame
+  income_acceptance <- rbind(income_acceptance, data.frame(Income_Level = income_label, Acceptance_Percent = round(acceptance_rate, 2)))
+}
+
+# Convert Income_Level to a factor and reorder
+income_acceptance <- income_acceptance %>%
+  mutate(Income_Level = factor(Income_Level, levels = income_levels)) %>%
+  arrange(Income_Level)
+
+# Display the table
+income_acceptance %>%
+  kable(col.names = c("Income Level", "Acceptance Rate (%)"),
+        caption = "Acceptance Rate by Income Level")
+
+```
+
+```{r}
+# Step 1: Ensure "Not Provided" for Missing Income
+data_clean_indiv <- data_clean_indiv %>%
+  mutate(income = if_else(is.na(income) | income == "", "Not Provided", income))
+
+# Step 2: Create a summary table by grouping on Income and Application.Status2
+income_status_summary <- data_clean_indiv %>%
+  group_by(income, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 3: Pivot the table to create a crosstable
+income_status_pivot <- income_status_summary %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 4: Calculate total applications per income level
+income_status_pivot <- income_status_pivot %>%
+  mutate(Total = rowSums(select(., -income)))
+
+# Step 5: Calculate percentages for each status
+income_status_percent <- income_status_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) 
+
+# Step 6: Ensure rounding and percentage formatting
+income_status_percent <- income_status_percent %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 7: Manually create the Totals Row
+totals_row <- income_status_pivot %>%
+  summarise(across(-income, sum)) %>%
+  mutate(income = "Total")
+
+# Step 7.1: Append "100.0%" manually to all percentage columns
+for (col in c("Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)", "Total (%)")) {
+  totals_row[[col]] <- "100.0%"  # Explicitly set to "100.0%" for all status columns
+}
+
+# Step 8: Append the Totals Row to the dataset
+income_status_final <- bind_rows(income_status_percent, totals_row)
+
+# Step 9: Define correct ordering for Income categories
+income_levels <- c(
+  "Less than $25,000", 
+  "$25,000 to $49,999", 
+  "$50,000 to $74,999", 
+  "$75,000 to $99,999", 
+  "$100,000 to $124,999", 
+  "$125,000 to $149,999", 
+  "$150,000 or more", 
+  "Not Provided",  # Now explicitly before Total
+  "Total"
+)
+
+# Ensure proper order
+income_status_final <- income_status_final %>%
+  mutate(income = factor(income, levels = income_levels)) %>%
+  arrange(income)
+
+# Step 10: Reorder columns to interleave count and percentage
+income_status_final <- income_status_final %>%
+  select(income, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         Total, `Total (%)`)  # Ensure alternating columns
+
+# Step 11: Format and Display the Table
+income_status_final %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
+    col.names = c("Income Level", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Total", "Percent"),
+    caption = "Application Status by Income Level"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "left", 
+                font_size = 12,  # Readable font size
+                latex_options = "scale_down") %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(1, width = "25em") %>%  # First column set to at least 25em
+  column_spec(2:9, width = "6em") %>%  # Other columns set to 6em
+  row_spec(nrow(income_status_final) - 1) %>%  # Bold "Not Provided"
+  row_spec(nrow(income_status_final), bold = TRUE)  # Bold the totals row
+
+```
+
+### Neighborhood Connection
+
+```{r}
+# Reorder the levels of the connection2 variable
+connection_order <- c("none", "<1 year", "1-5 years", "6-10 years", "11-20 years", "20+ years", "Not Provided")
+sole_prop_data <- sole_prop_data %>%
+  mutate(connection2 = factor(connection2, levels = connection_order))
+
+# Create the bar chart with reordered connection2 variable
+ggplot(sole_prop_data, aes(x = connection2)) +
+  geom_bar() +
+  geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5) +  # Add count labels at the top of each bar
+  labs(title = "Count of Applications by Connection", 
+       x = "Connection", 
+       y = "Count of Applications") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +  # Expand by 10% at the top
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Step 1: Calculate total counts and percentages
+connection_counts <- sole_prop_data %>%
+  count(connection2) %>%
+  mutate(Percent = (n / sum(n)) * 100)  # Calculate percent of total
+
+# Step 2: Create the bar chart with updated layout
+ggplot(connection_counts, aes(x = connection2, y = Percent)) +  # Keep connection order as-is
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = sprintf("%.1f%%", Percent)), vjust = -0.5) +  # Show % above bars
+  geom_text(aes(label = n, y = 0), vjust = 1.2) +  # Raw count below x-axis labels
+  labs(title = "Count of Applications by Connection", 
+       x = "Connection", 
+       y = "Percent of Applications") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), 
+                     expand = expansion(mult = c(0.2, 0.5), add = c(0, 0))) +  # Prevents negative y-axis
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.015),  # Lower x-axis labels
+    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 55)  # Slightly increase left margin
+  )
+
+
+```
+
+Connection Acceptance
+
+```{r}
+# Initialize an empty data frame to store results
+connection_acceptance <- data.frame(Connection = character(), Acceptance_Percent = numeric(), stringsAsFactors = FALSE)
+
+# Define ordered connection categories
+connection_levels <- c("none", "<1 year", "1-5 years", "6-10 years", "11-20 years", "20+ years", "Not Provided")
+
+# Loop over each connection level and calculate acceptance percentage
+for (connection_label in connection_levels) {  
+
+  # Filter for total applications matching this connection level
+  total_apps <- data_clean_indiv %>%
+    filter(connection2 == connection_label) %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Filter for accepted applications matching this connection level
+  accepted_apps <- data_clean_indiv %>%
+    filter(connection2 == connection_label & Application.Status2 == "Accepted") %>%
+    summarise(Count = n()) %>%
+    pull(Count)
+
+  # Calculate acceptance rate
+  acceptance_rate <- ifelse(total_apps > 0, (accepted_apps / total_apps) * 100, NA)
+
+  # Append to results data frame
+  connection_acceptance <- rbind(connection_acceptance, data.frame(Connection = connection_label, Acceptance_Percent = round(acceptance_rate, 2)))
+}
+
+# Convert Connection to a factor and reorder
+connection_acceptance <- connection_acceptance %>%
+  mutate(Connection = factor(Connection, levels = connection_levels)) %>%
+  arrange(Connection)
+
+# Display the table
+connection_acceptance %>%
+  kable(col.names = c("Neighborhood Connection", "Acceptance Rate (%)"),
+        caption = "Acceptance Rate by Neighborhood Connection")
+
+```
+
+```{r}
+# Step 1: Create a summary table by grouping on Connection and Application.Status2
+connection_status_summary <- sole_prop_data %>%
+  group_by(connection2, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+connection_status_pivot <- connection_status_summary %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 3: Calculate total applications per connection level
+connection_status_pivot <- connection_status_pivot %>%
+  mutate(Total = rowSums(select(., -connection2)))
+
+# Step 4: Calculate percentages for each status
+connection_status_percent <- connection_status_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) 
+
+# Step 5: Ensure rounding and percentage formatting
+connection_status_percent <- connection_status_percent %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 6: Manually create the Totals Row
+totals_row <- connection_status_pivot %>%
+  summarise(across(-connection2, sum)) %>%
+  mutate(connection2 = "Total")
+
+# Step 6.1: Append "100.0%" manually to all percentage columns
+for (col in c("Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)", "Total (%)")) {
+  totals_row[[col]] <- "100.0%"  # Explicitly set to "100.0%" for all status columns
+}
+
+# Step 7: Append the Totals Row to the dataset
+connection_status_final <- bind_rows(connection_status_percent, totals_row)
+
+# Step 8: Define correct ordering for Connection categories
+connection_levels <- c(
+  "none", 
+  "<1 year", 
+  "1-5 years", 
+  "6-10 years", 
+  "11-20 years", 
+  "20+ years", 
+  "Not Provided",
+  "Total"
+)
+
+# Ensure proper order
+connection_status_final <- connection_status_final %>%
+  mutate(connection2 = factor(connection2, levels = connection_levels)) %>%
+  arrange(connection2)
+
+# Step 9: Reorder columns to interleave count and percentage
+connection_status_final <- connection_status_final %>%
+  select(connection2, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         Total, `Total (%)`)  # Ensure alternating columns
+
+# Step 10: Format and Display the Table
+connection_status_final %>%
+  kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
+    col.names = c("Neighborhood Connection", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Count", "Percent", 
+                  "Total", "Percent"),
+    caption = "Application Status by Neighborhood Connection"
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "left", 
+                font_size = 12,  # Readable font size
+                latex_options = "scale_down") %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  column_spec(1, width = "25em") %>%  # First column set to at least 25em
+  column_spec(2:9, width = "6em") %>%  # Other columns set to 6em
+  row_spec(nrow(connection_status_final), bold = TRUE)  # Bold the totals row
+
+```
+
+# Property Count by Ward
+
+Create CBB Demand score by Ward
+Need unique lots by Ward
+Total Volume of Applications by Ward
+
+```{r}
+
+filtered_data <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
+
+# Get unique Property.PIN values
+unique_lots_ward <- filtered_data %>%
+  distinct(Property.PIN, Property.Ward)
+
+# Count unique lots by ZIP Code
+ward_lot_counts <- unique_lots_ward %>%
+  group_by(Property.Ward) %>%
+  summarise(Unique.Lots.by.Ward = n(), .groups = "drop")
+
+# Check the total record count
+nrow(unique_lots_ward)  # Should return 1,101 records
+
+# View results
+head(ward_lot_counts)
+
+
+#final_zip_summary <- final_zip_summary %>%
+#  mutate(ZIP.Demand.Score = Property.Applications.by.ZIP / Unique.Lots.by.ZIP)
+
+ward_app_counts <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property.Ward) %>%
+  summarise(Property.Applications.by.Ward = n(), .groups = "drop")
+
+ward_summary <- ward_lot_counts %>%
+  full_join(ward_app_counts, by = c("Property.Ward" = "Property.Ward")) 
+
+#calculate demand, add charts in for matt
+
+ward_summary <- ward_summary %>%
+  mutate(Ward.Demand.Score = Property.Applications.by.Ward / Unique.Lots.by.Ward)
+
+```
+
+
+Properties sold by the city tend to be on the cities south and west side.
+These are also the communities that tend to have the highest quantity of vacant land.
+The following table breaks down count of applications ad application status by city council ward.
+Vacant land in the 28th ward solicited the greatest number of applications at 284.Among the eight wards with 100 or more applications, application statuses are consistent in their proportions.
+Among this group of high-application wards, acceptance rates are between 6.77-15.84%, in-progress rates are between 15.49-23.20%, and denied or withdrawn rates are between 66.00-75.12%.
+This consistent range suggests that certain wards are not experiencing favorable acceptance rates, or unfavorable denial rates.
+
+```{r, warning=FALSE}
+data_wards <- read_csv("CBB_Data_Rebuild3.3.csv", show_col_types = FALSE)
+
+data_wards %>%
+  filter(!str_detect(Property.PIN, "^[0-9]+$") | !str_detect(Property.Ward, "^[0-9]+$"))
+
+data_wards_cleaned <- data_wards %>%
+  mutate(
+    Property.PIN = as.numeric(Property.PIN),
+    Property.Ward = as.numeric(Property.Ward)
+  ) %>%
+  filter(!is.na(Property.PIN), !is.na(Property.Ward))
+
+ward_property_table <- data_wards_cleaned %>%
+  group_by(Property.Ward) %>%
+  summarise(Unique_Property_PINs = n_distinct(Property.PIN)) %>%
+  arrange(desc(Unique_Property_PINs))
+
+#ward_property_table %>%
+ # kable(col.names = c("Ward", "Count of Lots Applied For"),
+  #      caption = "Count of Lots Applied For by Ward")
+
+data_wards_cleaned$Application.Status2 <- data_wards_cleaned$Application.Status  # Step 1: Create the field
+
+data_wards_cleaned$Application.Status2 <- ifelse(data_wards_cleaned$Application.Status %in% c("Withdrawn", "Declined"),
+                                         "Declined & Withdrawn",
+                                         data_wards_cleaned$Application.Status2)
+
+
+ward_status_count_table <- data_wards_cleaned %>%
+  group_by(Property.Ward, Application.Status2) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+ward_status_pivot_count_table <- ward_status_count_table %>%
+  dplyr::select(Property.Ward, Application.Status2, Count) %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+ward_status_pivot_count_table <- ward_status_pivot_count_table %>%
+  dplyr::select(Property.Ward, "Accepted", "In-Progress", "Declined & Withdrawn")
+
+#ward_status_pivot_count_table %>%
+ # kable(col.names = c("Ward", "Accepted", "In-Progress", "Declined & Withdrawn"),
+  #      caption = "Count of Application Status by Ward")
+
+ward_status_percent_table <- data_wards_cleaned %>%
+  group_by(Property.Ward, Application.Status2) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+total_count_by_ward <- ward_status_percent_table %>%
+  group_by(Property.Ward) %>%
+  summarize(Total_Count = sum(Count, na.rm = TRUE))
+
+ward_status_pivot_table <- ward_status_percent_table %>%
+  dplyr::select(Property.Ward, Application.Status2, Percentage) %>%
+  pivot_wider(names_from = Application.Status2, values_from = Percentage, values_fill = 0) %>%
+  left_join(total_count_by_ward, by = "Property.Ward")
+
+ward_status_pivot_table <- ward_status_pivot_table %>%
+  dplyr::select(Property.Ward, Total_Count, "Accepted", "In-Progress", "Declined & Withdrawn")
+
+ward_summary <- ward_summary %>%
+  mutate(Property.Ward = as.numeric(Property.Ward))
+
+ward_status_pivot_table <- ward_status_pivot_table %>%
+  left_join(ward_summary, by = "Property.Ward") %>%
+  select(Property.Ward, Total_Count, Ward.Demand.Score, "Accepted", "In-Progress", "Declined & Withdrawn")
+
+ward_status_pivot_table <- ward_status_pivot_table %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))
+
+ward_status_pivot_table %>%
+  arrange(desc(Total_Count)) %>%
+  filter(Total_Count >= 10) %>%
+  kable(col.names = c("Ward", "Count of Applications", "Applications/Lot", "Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)"),
+        caption = "Percent of Application Status by Ward")
+```
+
+
+```{r}
+library(ggplot2)
+
+# Scatter plot with regression line
+ggplot(ward_status_pivot_table, aes(x = Ward.Demand.Score, y = Accepted)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +  # Adds a linear regression line with confidence interval
+  labs(title = "Scatter Plot of Ward Demand Score vs % Accepted Applications",
+       x = "Ward Demand Score",
+       y = "Accepted Applications") +
+  theme_minimal()
+
+```
+
+
+Matt Request Table Edit – Entity Type
+
+New Race Section
+
+```{r}
+
+#data_clean_race <- data_clean_indiv %>%
+#  filter(Applicant.Race != "Not Provided")
+
+
+#that gives us 815 application line items from sole proprietors who have provided a response on race
+#long if statement to determine new Race & Ethnicity value
+
+# Add the new column race_ethnicity
+data_clean_indiv <- data_clean_indiv %>%
+  mutate(race_ethnicity = case_when(
+
+    # 1) Hispanic response
+    hispanic == "Hispanic or Latino/Latina/Latinx" ~ "Hispanic or Latino (Any Race)",
+    # 2) Both Hispanic & Race "Prefer not to answer"
+    hispanic == "I prefer not to answer" & str_detect(Applicant.Race, "I prefer not to answer") ~ "I prefer not to answer",
+    # 3) Hispanic "Prefer not to answer" & Race "I identify as a race that is not listed here"
+    hispanic == "I prefer not to answer" & Applicant.Race == "I identify as a race that is not listed here" ~ "I identify as a race that is not listed here alone",
+  # 4-6) Hispanic "Prefer not to answer" & Single Race
+  hispanic == "I prefer not to answer" & Applicant.Race == "Black or African American" ~ "Black or African American alone (non-Hispanic or Latino)",
+  hispanic == "I prefer not to answer" & Applicant.Race == "Native American or Alaskan Native" ~ "Native American or Alaskan Native alone (non-Hispanic or Latino)",
+  hispanic == "I prefer not to answer" & Applicant.Race == "White or Caucasian" ~ "White or Caucasian alone (non-Hispanic or Latino)",
+  # 7) Not Hispanic & Race contains "I prefer not to answer"
+    hispanic == "Not Hispanic or Latino/Latina/Latinx" & (Applicant.Race == "I prefer not to answer" | Applicant.Race == " ") ~ "I prefer not to answer",
+    # 8-12) Not Hispanic & Single Race
+    hispanic == "Not Hispanic or Latino/Latina/Latinx" & Applicant.Race == "White or Caucasian" ~ "White or Caucasian alone (non-Hispanic or Latino)",
+    hispanic == "Not Hispanic or Latino/Latina/Latinx" & Applicant.Race == "Black or African American" ~ "Black or African American alone (non-Hispanic or Latino)",
+    hispanic == "Not Hispanic or Latino/Latina/Latinx" & Applicant.Race == "Asian or Pacific Islander" ~ "Asian or Pacific Islander alone (non-Hispanic or Latino)",
+    hispanic == "Not Hispanic or Latino/Latina/Latinx" & Applicant.Race == "Native American or Alaskan Native" ~ "Native American or Alaskan Native alone (non-Hispanic or Latino)",
+    hispanic == "Not Hispanic or Latino/Latina/Latinx" & Applicant.Race == "I identify as a race that is not listed here" ~ "I identify as a race that is not listed here alone",
+    # 13) Everything else
+    TRUE ~ "Two or more races (non-Hispanic or Latino)"
+  ))
+
+# Count occurrences of each race_ethnicity category
+
+race_ethnicity_counts <- data_clean_indiv %>%
+  count(race_ethnicity)
+
+# Display the counts to verify
+race_ethnicity_counts %>%
+  kable(col.names = c("Race & Ethnicity", "Count"),
+        caption = "Count of Race & Ethnicity Categories")
+# Define race & ethnicity response categories (based on race_ethnicity field)
+race_responses <- c("Black or African American alone (non-Hispanic or Latino)",
+                    "Hispanic or Latino (Any Race)",
+                    "White or Caucasian alone (non-Hispanic or Latino)",
+                    "Two or more races (non-Hispanic or Latino)",
+                    "Asian or Pacific Islander alone (non-Hispanic or Latino)",
+                    "I identify as a race that is not listed here alone",
+                    "Native American or Alaskan Native alone (non-Hispanic or Latino)",
+                    "I prefer not to answer")
+
+# Count occurrences directly from data_clean_race using race_ethnicity
+race_counts <- data_clean_indiv %>%
+  filter(race_ethnicity %in% race_responses) %>%  # Ensure only relevant categories
+  count(race_ethnicity) %>%
+  rename(Race = race_ethnicity, Count = n)
+race_counts <- race_counts %>%
+  mutate(Race = factor(Race, levels = race_responses))
+ 
+# Generate a bar chart to visualize race counts
+ggplot(race_counts, aes(x = Race, y = Count)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5) +  # Add count labels above the bars
+  labs(title = "Race & Ethnicity Distribution of Sole Proprietor/Individual Applicants",
+       x = "Race & Ethnicity",
+       y = "Count of Responses") +
+  theme_minimal() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +  # Expand y-axis by 15% for label space
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Adjusted Race & Ethnicity to percent chart
+
+```{r}
+# Calculate total responses for percentage conversion
+total_responses <- sum(race_counts$Count)
+
+# Convert count to percentage and format for display
+race_counts <- race_counts %>%
+  mutate(Percent = (Count / total_responses) * 100,  # Convert to percentage
+         Percent_Label = paste0(round(Percent, 1), "%"))  # Format percentage label
+
+ggplot(race_counts, aes(x = Race, y = Percent)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Percent_Label), vjust = -0.5) +  # Keeps percent labels above bars
+  geom_text(aes(label = Count, y = -5), vjust = 0.5) +  # Moves raw count closer to x-axis labels
+  labs(title = "Race & Ethnicity Distribution of Sole Proprietor/Individual Applicants", 
+       x = "Race & Ethnicity", 
+       y = "Percent of Responses") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), expand = expansion(mult = c(0.2, 0.5))) +  # Ensures proper top margin
+  theme(
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.025),  # Keeps x-axis labels readable
+    axis.title.x = element_text(margin = margin(t = 5)),  # Moves x-axis title up slightly to remove whitespace
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)  # Expands left margin so first label fits
+  )
+
+```
+
+```{r}
+# Step 1: Create a summary table by grouping on race_ethnicity and Application.Status2
+race_status_summary <- data_clean_indiv %>%
+  group_by(race_ethnicity, Application.Status2) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+race_status_pivot <- race_status_summary %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+# Step 3: Calculate total applications per race category
+race_status_pivot <- race_status_pivot %>%
+  mutate(Total = rowSums(select(., -race_ethnicity)))
+
+# Step 4: Calculate percentages for each status
+race_status_percent <- race_status_pivot %>%
+  mutate(
+    `Accepted (%)` = (Accepted / Total) * 100,
+    `In-Progress (%)` = (`In-Progress` / Total) * 100,
+    `Declined & Withdrawn (%)` = (`Declined & Withdrawn` / Total) * 100,
+    `Total (%)` = 100  # Since total column should always be 100%
+  ) 
+
+# Step 5: Ensure rounding and percentage formatting
+race_status_percent <- race_status_percent %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
+
+# Step 6: Manually create the Totals Row
+totals_row <- race_status_pivot %>%
+  summarise(across(-race_ethnicity, sum)) %>%
+  mutate(race_ethnicity = "Total")
+
+# Step 6.1: Append "100.0%" manually to all percentage columns
+for (col in c("Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)", "Total (%)")) {
+  totals_row[[col]] <- "100.0%"  # Explicitly set to "100.0%" for all status columns
+}
+
+# Step 7: Append the Totals Row to the dataset
+race_status_final <- bind_rows(race_status_percent, totals_row)
+
+# Step 8: Define correct ordering for race categories
+race_ethnicity_groups <- c(
+  "Black or African American alone (non-Hispanic or Latino)", 
+  "Hispanic or Latino (Any Race)", 
+  "White or Caucasian alone (non-Hispanic or Latino)", 
+  "Two or more races (non-Hispanic or Latino)", 
+  "Asian or Pacific Islander alone (non-Hispanic or Latino)", 
+  "I identify as a race that is not listed here alone", 
+  "Native American or Alaskan Native alone (non-Hispanic or Latino)", 
+  "I prefer not to answer",
+  "Total"
+)
+
+# Ensure proper order
+race_status_final <- race_status_final %>%
+  mutate(race_ethnicity = factor(race_ethnicity, levels = race_ethnicity_groups)) %>%
+  arrange(race_ethnicity)
+
+# Step 9: Reorder columns to interleave count and percentage
+race_status_final <- race_status_final %>%
+  select(race_ethnicity, 
+         Accepted, `Accepted (%)`, 
+         `In-Progress`, `In-Progress (%)`, 
+         `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
+         Total, `Total (%)`)  # Ensure alternating columns
+
+# Step 10: Format and Display the Table
+race_status_final %>%
+  kable(align = c("l", rep("c", 8)), 
+        col.names = c("Race & Ethnicity", 
+                      "Count", "Percent", 
+                      "Count", "Percent", 
+                      "Count", "Percent", 
+                      "Total", "Percent"),
+        caption = "Application Status by Race & Ethnicity",
+        longtable = TRUE) %>%  # Helps in LaTeX/PDF output
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "left", 
+                font_size = 9,  # Forces smaller text to prevent stretching
+                latex_options = "scale_down") %>%  # Scales down for PDF output
+  add_header_above(c(" " = 1, 
+                     "Accepted" = 2, 
+                     "In-Progress" = 2, 
+                     "Declined & Withdrawn" = 2, 
+                     "Total" = 2)) %>%
+  column_spec(1, width = "20em", extra_css = "min-width: 20em; max-width: 25em;") %>%  # Expands first column width in HTML
+  column_spec(2:9, width = "4em", extra_css = "min-width: 4em; max-width: 6em;") %>%  # Keeps other columns narrower
+  row_spec(nrow(race_status_final), bold = TRUE)
+
+```
+
+
+Entity types by Window and Application Types by Window
+```{r}
+# Step 1: Shorten Application_Window names
+data_clean <- data_clean %>%
+  mutate(Window_Summary = case_when(
+    Application_Window == "Window 1, Nov '22 - May '23" ~ "Window 1",
+    Application_Window == "Window 2, Nov '23 - Jan '24" ~ "Window 2",
+    Application_Window == "Window 3, March '24 - July '24" ~ "Window 3",
+    TRUE ~ Application_Window  # Keep as-is if already correct
+  ))
+
+
+# Step 1: Create a summary table by grouping on Application_Window and Purchasing.Entity.Type
+entity_window_summary <- data_clean %>%
+  group_by(Window_Summary, Purchasing.Entity.Type) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+entity_window_crosstable <- entity_window_summary %>%
+  pivot_wider(names_from = Window_Summary, values_from = Count, values_fill = 0)
+
+# Step 3: Add percentage columns, rounding to 1 decimal place
+entity_window_percent <- entity_window_crosstable %>%
+  mutate(across(-Purchasing.Entity.Type, ~ round((.x / sum(.x)) * 100, 1), .names = "{.col} (%)"))
+
+# Step 4: Convert all percentage columns to character with "%" suffix
+entity_window_percent <- entity_window_percent %>%
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%"), .names = "{.col}"))
+
+# Step 5: Manually create the Totals Row
+totals_row <- entity_window_crosstable %>%
+  summarise(across(-Purchasing.Entity.Type, sum)) %>%
+  mutate(Purchasing.Entity.Type = "Total")
+
+# Step 6: Ensure percentage totals are formatted correctly
+for (window in colnames(entity_window_crosstable)[-1]) {  # Skip "Purchasing.Entity.Type"
+  percent_col <- paste0(window, " (%)")
+  if (percent_col %in% colnames(entity_window_percent)) {
+    totals_row[[percent_col]] <- "100.0%"  # Assign consistent character format
+  }
+}
+
+# Step 7: Convert all percentage columns in totals_row to character type before binding
+totals_row <- totals_row %>%
+  mutate(across(ends_with("(%)"), as.character))
+
+# Step 8: Bind the Totals Row to the dataset
+entity_window_final <- bind_rows(entity_window_percent, totals_row)
+
+# Step 9: Ensure correct column order (Count next to Percent)
+ordered_columns <- c("Purchasing.Entity.Type", 
+                     rbind(colnames(entity_window_crosstable)[-1], 
+                           paste0(colnames(entity_window_crosstable)[-1], " (%)"))) %>% as.vector()
+
+entity_window_final <- entity_window_final %>%
+  dplyr::select(all_of(ordered_columns))  # Ensure correct column order
+
+# Define window names in the correct order
+windows <- c("Window 1", "Window 2", "Window 3")
+
+
+# Format and Display the Table
+entity_window_final %>%
+  kable(align = c("l", rep("c", 6)), col.names = NULL) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c("Entity Type" = 1, rep(c("Count", "Percent"), length(windows)))) %>%
+  add_header_above(c(" " = 1, "Window 1" = 2, "Window 2" = 2, "Window 3" = 2)) %>%
+  column_spec(2:7, width = "7em", extra_css = "text-align: right;") %>%
+  row_spec(nrow(entity_window_final), bold = TRUE)  # Bold the totals row
+
+
+```
+
+```{r}
+# Step 1: Create a summary table by grouping on Window_Summary and Application.Type
+application_window_summary <- data_clean %>%
+  group_by(Window_Summary, Application.Type) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Step 2: Pivot the table to create a crosstable
+application_window_crosstable <- application_window_summary %>%
+  pivot_wider(names_from = Window_Summary, values_from = Count, values_fill = 0)
+
+# Step 3: Add percentage columns, rounding to 1 decimal place
+application_window_percent <- application_window_crosstable %>%
+  mutate(across(-Application.Type, ~ round((.x / sum(.x)) * 100, 1), .names = "{.col} (%)"))
+
+# Step 4: Convert all percentage columns to character with "%" suffix
+application_window_percent <- application_window_percent %>%
+  mutate(across(ends_with("(%)"), ~ paste0(.x, "%"), .names = "{.col}"))
+
+# Step 5: Manually create the Totals Row
+totals_row <- application_window_crosstable %>%
+  summarise(across(-Application.Type, sum)) %>%
+  mutate(Application.Type = "Total")
+
+# Step 6: Ensure percentage totals are formatted correctly
+for (window in colnames(application_window_crosstable)[-1]) {  # Skip "Application.Type"
+  percent_col <- paste0(window, " (%)")
+  if (percent_col %in% colnames(application_window_percent)) {
+    totals_row[[percent_col]] <- "100.0%"  # Assign consistent character format
+  }
+}
+
+# Step 7: Convert all percentage columns in totals_row to character type before binding
+totals_row <- totals_row %>%
+  mutate(across(ends_with("(%)"), as.character))
+
+# Step 8: Bind the Totals Row to the dataset
+application_window_final <- bind_rows(application_window_percent, totals_row)
+
+# Step 9: Ensure correct column order (Count next to Percent)
+ordered_columns <- c("Application.Type", 
+                     rbind(colnames(application_window_crosstable)[-1], 
+                           paste0(colnames(application_window_crosstable)[-1], " (%)"))) %>% as.vector()
+
+application_window_final <- application_window_final %>%
+  dplyr::select(all_of(ordered_columns))  # Ensure correct column order
+
+# Format and Display the Table
+application_window_final %>%
+  kable(align = c("l", rep("c", 6)), col.names = NULL) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c("Application Type" = 1, rep(c("Count", "Percent"), 3))) %>%
+  add_header_above(c(" " = 1, "Window 1" = 2, "Window 2" = 2, "Window 3" = 2)) %>%
+  column_spec(2:7, width = "7em", extra_css = "text-align: right;") %>%
+  row_spec(nrow(application_window_final), bold = TRUE)  # Bold the totals row
+
+```
+
+
+```{r}
+
+#ensure universe is clean
+filtered_data <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
+
+
+# Get unique Property.PIN values
+unique_lots_commarea <- filtered_data %>%
+  distinct(Property.PIN, Property.Community.Area.1)
+
+# Count unique lots by Community Area
+commarea_lot_counts <- unique_lots_commarea %>%
+  group_by(Property.Community.Area.1) %>%
+  summarise(Unique.Lots.by.Commarea = n(), .groups = "drop")
+
+# Check the total record count
+nrow(unique_lots_commarea)  # Should returned 1100 records
+
+# Count unique applications by Community Area
+commarea_app_counts <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property.Community.Area.1) %>%
+  summarise(Property.Applications.by.Commarea = n(), .groups = "drop")
+
+# Join the two values into one dataset
+commarea_summary <- commarea_lot_counts %>%
+  full_join(commarea_app_counts, by = c("Property.Community.Area.1" = "Property.Community.Area.1")) 
+
+# Calculate "Demand" 
+commarea_summary <- commarea_summary %>%
+  mutate(Commarea.Demand.Score = Property.Applications.by.Commarea / Unique.Lots.by.Commarea)
+
+```
+
