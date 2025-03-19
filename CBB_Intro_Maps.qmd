@@ -2904,11 +2904,56 @@ percent_local_zips <- percent_local_zips %>%
 
 percent_local_zips <- st_intersection(percent_local_zips, city_boundary)
 
+
 tm_shape(percent_local_zips) +
   tm_polygons(fill = "percent_local", 
               fill.scale = tm_scale_intervals(n = 5, style = "jenks", values = "brewer.blues")) +
   tm_layout(legend.outside = TRUE, frame = FALSE) +
-  tm_title("Percent of Applications from within same ZIP Code")
+  tm_title("Percent of Applicants from within same ZIP Code")
+
+
+```
+
+# Figure 13: Percent of applications from within the same ZIP code for Individuals/Sole Proprietors only
+
+```{r}
+
+data_clean_individual <- data_clean %>%
+  filter(Entity_Type_Group == "Sole Proprietor/Individual")
+
+matched_zips <- data_clean %>%
+  filter(applicant_ZIP == Property_ZipCode) %>% # filters rows where applicant_ZIP matches Property_ZipCode, keeping only records where the ZIP codes are the same.
+  distinct(Name.Key, .keep_all = TRUE) %>% # Removes duplicate rows based on the Name.Key column.
+  group_by(applicant_ZIP) %>%
+  summarise(local_count = n()) # Counts the number of rows in each group (i.e., the number of unique Name.Key entries per applicant_ZIP).
+
+# For ALL zip codes, summarise applicants by zip code of the property they applied to and count the number of applicants in a new column called "total_count"
+total_zips <- data_clean %>%
+  distinct(Name.Key, .keep_all = TRUE) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(total_count = n())
+
+total_zips <- total_zips %>%
+  mutate(Property_ZipCode = as.character(Property_ZipCode))
+
+joined_zips <- inner_join(total_zips,matched_zips, by = c("Property_ZipCode" = "applicant_ZIP"))
+
+# Calculate the percentage of local applicants
+joined_zips <- joined_zips %>%
+  mutate(percent_local = (local_count / total_count) * 100)
+
+percent_local_zips <- left_join(zips_chi_join, joined_zips, by = c("ZCTA5CE10" = "Property_ZipCode"))
+
+percent_local_zips <- percent_local_zips %>%
+  mutate(percent_local = replace_na(percent_local, 0))
+
+percent_local_zips <- st_intersection(percent_local_zips, city_boundary)
+
+tm_shape(percent_local_zips) +
+  tm_polygons(fill = "percent_local", 
+              fill.scale = tm_scale_intervals(n = 5, style = "jenks", values = "brewer.blues")) +
+  tm_layout(legend.outside = TRUE, frame = FALSE) +
+  tm_title("Percent of Applicants from within same ZIP Code for Sole Proprietors/Individuals")
 
 
 ```
@@ -3124,45 +3169,6 @@ if(any(duplicated(names(property_zips_points_sf)))) {
 
 
 
-
-# Percent of applications from within the same ZIP code for Individuals/Sole Proprietors only
-
-```{r}
-
-data_clean_individual <- data_clean %>%
-  filter(Entity_Type_Group == "Sole Proprietor/Individual")
-
-# For zip codes that are the same for applicant and property, summarise applications (rows) by zip code and count the number of times that each zip appears in a new column called "local_count"
-matched_zips <- data_clean_individual %>%
-  filter(applicant_ZIP == Property_ZipCode) %>%
-  group_by(applicant_ZIP) %>%
-  summarise(local_count = n())
-
-# For ALL zip codes where the applicant zip and property zip are the same, summarise applications (rows) by zip code and count the number of times that each zip appears in a new column called "total_count"
-total_zips <- data_clean %>%
-  filter(applicant_ZIP == Property_ZipCode) %>%
-  group_by(applicant_ZIP) %>%
-  summarise(total_count = n())
-
-joined_zips <- inner_join(total_zips,matched_zips, by = "applicant_ZIP")
-
-# Calculate the percentage of local applicants
-joined_zips <- joined_zips %>%
-  mutate(percent_local = (local_count / total_count) * 100)
-
-percent_local_zips <- left_join(zips_chi_join, joined_zips, by = c("ZCTA5CE10" = "applicant_ZIP"))
-
-percent_local_zips <- percent_local_zips %>%
-  mutate(percent_local = replace_na(percent_local, 0))
-
-tm_shape(percent_local_zips) +
-  tm_polygons(fill = "percent_local", 
-              fill.scale = tm_scale_intervals(n = 5, style = "jenks", values = "brewer.blues")) +
-  tm_layout(legend.outside = TRUE, frame = FALSE) +
-  tm_title("Percent of Applications from within ZIP Code for Sole Proprietors/Individuals")
-
-
-```
 
 # Percent of applications from within the same ZIP code for non-individual entities
 
