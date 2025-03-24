@@ -410,6 +410,11 @@ final_table <- final_table %>%
            ~ paste0(formatC(.x, format = "f", digits = 1), "%"))  # Ensure 1 decimal place & append "%"
   )
 
+# Rename "Declined & Withdrawn" to "Declined"
+final_table <- final_table %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Create the formatted table with multi-line headers
 final_table %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), col.names = NULL) %>%
@@ -418,7 +423,7 @@ final_table %>%
                      "Count" = 1, "Percent" = 1,
                      "Count" = 1, "Percent" = 1,
                      "Count" = 1, "Percent" = 1)) %>%
-  add_header_above(c("Entity Type" = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c("Entity Type" = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(2:9, width = "7em", extra_css = "text-align: right;") %>%
   row_spec(0, align = "left")
 
@@ -483,6 +488,10 @@ status_final_table <- status_percent_table %>%
 # Define the entity types for proper column grouping
 entity_types <- c("Accepted", "In-Progress", "Declined & Withdrawn")
 
+# Rename "Declined & Withdrawn" to "Declined"
+status_final_table <- status_final_table %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
 
 # Apply kable formatting
 status_final_table %>%
@@ -498,7 +507,7 @@ status_final_table %>%
                      "Count" = 1, "Percent" = 1)) %>%
   
   # Top header: Main application status groups
-  add_header_above(c(" " = 2, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2)) %>%
+  add_header_above(c(" " = 2, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2)) %>%
 
   # Ensure all columns except the first two are center-aligned
   column_spec(1, width = "20em") %>%
@@ -625,6 +634,11 @@ final_table <- final_table %>%
   mutate(across(c(`Accepted (%)`, `In-Progress (%)`, `Declined & Withdrawn (%)`, `Total (%)`),
                 ~ paste0(.x, "%")))
 
+# Rename "Declined & Withdrawn" to "Declined"
+final_table <- final_table %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 9: Create the formatted table with multi-line headers
 final_table %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), col.names = NULL) %>%
@@ -633,7 +647,7 @@ final_table %>%
                               "Count" = 1, "Percent" = 1,
                               "Count" = 1, "Percent" = 1,
                               "Count" = 1, "Percent" = 1)) %>%
-  add_header_above(c("Application Type" = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c("Application Type" = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(2:9, width = "7em", extra_css = "text-align: right;") %>%
   row_spec(0, align = "left")
 
@@ -933,6 +947,11 @@ status_demo_pivot <- status_demo_pivot %>%
   mutate(across(where(is.numeric), ~ round(.x, 1))) %>%  # Round to 1 decimal
   mutate(across(ends_with("(%)"), ~ paste0(.x, "%")))  # Append "%" to percentage columns
 
+# Rename "Declined & Withdrawn" to "Declined"
+status_demo_pivot <- status_demo_pivot %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 7: Display as a table
 status_demo_pivot %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
@@ -944,7 +963,7 @@ status_demo_pivot %>%
     caption = "Application Status for Sole Proprietor/Individual by Demographic Information Provided"
   ) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
-  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(2:9, width = "7em", extra_css = "text-align: right;") %>%
   row_spec(nrow(status_demo_pivot), bold = TRUE)  # Bold the totals row
 
@@ -1255,6 +1274,11 @@ gender_status_final <- gender_status_final %>%
          `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
          Total, `Total (%)`)  # Ensure alternating columns
 
+# Rename "Declined & Withdrawn" to "Declined"
+gender_status_final <- gender_status_final %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 11: Format and Display the Table
 gender_status_final %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
@@ -1270,7 +1294,7 @@ gender_status_final %>%
                 position = "left", 
                 font_size = 12,  # Ensures text fits correctly
                 latex_options = "scale_down") %>%
-  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(1, width = "30em") %>%  # Expands first column width
   column_spec(2:9, width = "7em") %>%  # Ensures readability without forced equal column widths
   row_spec(nrow(gender_status_final), bold = TRUE)  # Bold the totals row
@@ -1559,6 +1583,11 @@ lgbtqia_status_final <- lgbtqia_status_final %>%
          `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
          Total, `Total (%)`)  # Ensure alternating columns
 
+# Rename "Declined & Withdrawn" to "Declined"
+lgbtqia_status_final <- lgbtqia_status_final %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 10: Format and Display the Table
 lgbtqia_status_final %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
@@ -1574,7 +1603,7 @@ lgbtqia_status_final %>%
                 position = "left", 
                 font_size = 9,  
                 latex_options = "scale_down") %>%
-  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(1, width = "20em", extra_css = "min-width: 20em; max-width: 20em; text-align: left;") %>%  # Forces wider first column
   column_spec(2:9, width = "4em", extra_css = "min-width: 4em; max-width: 4em; text-align: right;") %>%  # Keeps other columns narrow
   row_spec(nrow(lgbtqia_status_final), bold = TRUE)  # Bold the totals row
@@ -1735,6 +1764,11 @@ age_status_final <- age_status_final %>%
          `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
          Total, `Total (%)`)  # Ensure alternating columns
 
+# Rename "Declined & Withdrawn" to "Declined"
+age_status_final <- age_status_final %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 10: Format and Display the Table
 age_status_final %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
@@ -1750,7 +1784,7 @@ age_status_final %>%
                 position = "left", 
                 font_size = 12,  # Readable but compact
                 latex_options = "scale_down") %>%
-  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(1, width = "20em") %>%  # First column does not need excessive width
   column_spec(2:9, width = "7em") %>%  # Keeps other columns compact
   row_spec(nrow(age_status_final), bold = TRUE)  # Bold the totals row
@@ -1934,6 +1968,11 @@ income_status_final <- income_status_final %>%
          `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
          Total, `Total (%)`)  # Ensure alternating columns
 
+# Rename "Declined & Withdrawn" to "Declined"
+income_status_final <- income_status_final %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 11: Format and Display the Table
 income_status_final %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
@@ -1949,7 +1988,7 @@ income_status_final %>%
                 position = "left", 
                 font_size = 12,  # Readable font size
                 latex_options = "scale_down") %>%
-  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(1, width = "25em") %>%  # First column set to at least 25em
   column_spec(2:9, width = "6em") %>%  # Other columns set to 6em
   row_spec(nrow(income_status_final) - 1) %>%  # Bold "Not Provided"
@@ -2110,6 +2149,11 @@ connection_status_final <- connection_status_final %>%
          `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
          Total, `Total (%)`)  # Ensure alternating columns
 
+# Rename "Declined & Withdrawn" to "Declined"
+connection_status_final <- connection_status_final %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 10: Format and Display the Table
 connection_status_final %>%
   kable(align = c("l", "c", "c", "c", "c", "c", "c", "c", "c"), 
@@ -2125,7 +2169,7 @@ connection_status_final %>%
                 position = "left", 
                 font_size = 12,  # Readable font size
                 latex_options = "scale_down") %>%
-  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined & Withdrawn" = 2, "Total" = 2)) %>%
+  add_header_above(c(" " = 1, "Accepted" = 2, "In-Progress" = 2, "Declined" = 2, "Total" = 2)) %>%
   column_spec(1, width = "25em") %>%  # First column set to at least 25em
   column_spec(2:9, width = "6em") %>%  # Other columns set to 6em
   row_spec(nrow(connection_status_final), bold = TRUE)  # Bold the totals row
@@ -2138,40 +2182,40 @@ Create CBB Demand score by Ward Need unique lots by Ward Total Volume of Applica
 
 ```{r}
 
-filtered_data <- data_clean %>%
-  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
-
-# Get unique Property.PIN values
-unique_lots_ward <- filtered_data %>%
-  distinct(Property.PIN, Property.Ward)
-
-# Count unique lots by ZIP Code
-ward_lot_counts <- unique_lots_ward %>%
-  group_by(Property.Ward) %>%
-  summarise(Unique.Lots.by.Ward = n(), .groups = "drop")
-
-# Check the total record count
-nrow(unique_lots_ward)  # Should return 1,101 records
-
-# View results
-head(ward_lot_counts)
-
-
-#final_zip_summary <- final_zip_summary %>%
-#  mutate(ZIP.Demand.Score = Property.Applications.by.ZIP / Unique.Lots.by.ZIP)
-
-ward_app_counts <- data_clean %>%
-  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
-  group_by(Property.Ward) %>%
-  summarise(Property.Applications.by.Ward = n(), .groups = "drop")
-
-ward_summary <- ward_lot_counts %>%
-  full_join(ward_app_counts, by = c("Property.Ward" = "Property.Ward")) 
-
-#calculate demand, add charts in for matt
-
-ward_summary <- ward_summary %>%
-  mutate(Ward.Demand.Score = Property.Applications.by.Ward / Unique.Lots.by.Ward)
+# filtered_data <- data_clean %>%
+#   filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
+# 
+# # Get unique Property.PIN values
+# unique_lots_ward <- filtered_data %>%
+#   distinct(Property.PIN, Property.Ward)
+# 
+# # Count unique lots by ZIP Code
+# ward_lot_counts <- unique_lots_ward %>%
+#   group_by(Property.Ward) %>%
+#   summarise(Unique.Lots.by.Ward = n(), .groups = "drop")
+# 
+# # Check the total record count
+# nrow(unique_lots_ward)  # Should return 1,101 records
+# 
+# # View results
+# head(ward_lot_counts)
+# 
+# 
+# #final_zip_summary <- final_zip_summary %>%
+# #  mutate(ZIP.Demand.Score = Property.Applications.by.ZIP / Unique.Lots.by.ZIP)
+# 
+# ward_app_counts <- data_clean %>%
+#   filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+#   group_by(Property.Ward) %>%
+#   summarise(Property.Applications.by.Ward = n(), .groups = "drop")
+# 
+# ward_summary <- ward_lot_counts %>%
+#   full_join(ward_app_counts, by = c("Property.Ward" = "Property.Ward"))
+# 
+# #calculate demand, add charts in for matt
+# 
+# ward_summary <- ward_summary %>%
+#   mutate(Ward.Demand.Score = Property.Applications.by.Ward / Unique.Lots.by.Ward)
 
 ```
 
@@ -2183,96 +2227,97 @@ Among this group of high-application wards, acceptance rates are between 6.77-15
 This consistent range suggests that certain wards are not experiencing favorable acceptance rates, or unfavorable denial rates.
 
 ```{r, warning=FALSE}
-data_wards <- read_csv("CBB_Data_Rebuild3.3.csv", show_col_types = FALSE)
+ 
+# data_wards <- read_csv("CBB_Data_Rebuild3.3.csv", show_col_types = FALSE)
+# 
+# data_wards %>%
+#   filter(!str_detect(Property.PIN, "^[0-9]+$") | !str_detect(Property.Ward, "^[0-9]+$"))
+# 
+# data_wards_cleaned <- data_wards %>%
+#   mutate(
+#     Property.PIN = as.numeric(Property.PIN),
+#     Property.Ward = as.numeric(Property.Ward)
+#   ) %>%
+#   filter(!is.na(Property.PIN), !is.na(Property.Ward))
+# 
+# ward_property_table <- data_wards_cleaned %>%
+#   group_by(Property.Ward) %>%
+#   summarise(Unique_Property_PINs = n_distinct(Property.PIN)) %>%
+#   arrange(desc(Unique_Property_PINs))
+# 
+# # ward_property_table %>%
+# #   kable(col.names = c("Ward", "Count of Lots Applied For"),
+# #         caption = "Count of Lots Applied For by Ward")
+# 
+# data_wards_cleaned$Application.Status2 <- data_wards_cleaned$Application.Status
+# 
+# data_wards_cleaned$Application.Status2 <- ifelse(data_wards_cleaned$Application.Status %in% c("Withdrawn", "Declined"),
+#                                                  "Declined & Withdrawn",
+#                                                  data_wards_cleaned$Application.Status2)
+# 
+# ward_status_count_table <- data_wards_cleaned %>%
+#   group_by(Property.Ward, Application.Status2) %>%
+#   summarise(Count = n()) %>%
+#   ungroup()
+# 
+# ward_status_pivot_count_table <- ward_status_count_table %>%
+#   dplyr::select(Property.Ward, Application.Status2, Count) %>%
+#   pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+# 
+# ward_status_pivot_count_table <- ward_status_pivot_count_table %>%
+#   dplyr::select(Property.Ward, "Accepted", "In-Progress", "Declined & Withdrawn")
+# 
+# # ward_status_pivot_count_table %>%
+# #   kable(col.names = c("Ward", "Accepted", "In-Progress", "Declined & Withdrawn"),
+# #         caption = "Count of Application Status by Ward")
+# 
+# ward_status_percent_table <- data_wards_cleaned %>%
+#   group_by(Property.Ward, Application.Status2) %>%
+#   summarise(Count = n()) %>%
+#   mutate(Percentage = Count / sum(Count) * 100) %>%
+#   ungroup()
+# 
+# total_count_by_ward <- ward_status_percent_table %>%
+#   group_by(Property.Ward) %>%
+#   summarize(Total_Count = sum(Count, na.rm = TRUE))
+# 
+# ward_status_pivot_table <- ward_status_percent_table %>%
+#   dplyr::select(Property.Ward, Application.Status2, Percentage) %>%
+#   pivot_wider(names_from = Application.Status2, values_from = Percentage, values_fill = 0) %>%
+#   left_join(total_count_by_ward, by = "Property.Ward")
+# 
+# ward_status_pivot_table <- ward_status_pivot_table %>%
+#   dplyr::select(Property.Ward, Total_Count, "Accepted", "In-Progress", "Declined & Withdrawn")
+# 
+# ward_summary <- ward_summary %>%
+#   mutate(Property.Ward = as.numeric(Property.Ward))
+# 
+# ward_status_pivot_table <- ward_status_pivot_table %>%
+#   left_join(ward_summary, by = "Property.Ward") %>%
+#   select(Property.Ward, Total_Count, Ward.Demand.Score, "Accepted", "In-Progress", "Declined & Withdrawn")
+# 
+# ward_status_pivot_table <- ward_status_pivot_table %>%
+#   mutate(across(where(is.numeric), ~ round(.x, 1)))
+# 
+# ward_status_pivot_table %>%
+#   arrange(desc(Total_Count)) %>%
+#   filter(Total_Count >= 10) %>%
+#   kable(col.names = c("Ward", "Count of Applications", "Applications/Lot", "Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)"),
+#         caption = "Percent of Application Status by Ward")
 
-data_wards %>%
-  filter(!str_detect(Property.PIN, "^[0-9]+$") | !str_detect(Property.Ward, "^[0-9]+$"))
-
-data_wards_cleaned <- data_wards %>%
-  mutate(
-    Property.PIN = as.numeric(Property.PIN),
-    Property.Ward = as.numeric(Property.Ward)
-  ) %>%
-  filter(!is.na(Property.PIN), !is.na(Property.Ward))
-
-ward_property_table <- data_wards_cleaned %>%
-  group_by(Property.Ward) %>%
-  summarise(Unique_Property_PINs = n_distinct(Property.PIN)) %>%
-  arrange(desc(Unique_Property_PINs))
-
-#ward_property_table %>%
- # kable(col.names = c("Ward", "Count of Lots Applied For"),
-  #      caption = "Count of Lots Applied For by Ward")
-
-data_wards_cleaned$Application.Status2 <- data_wards_cleaned$Application.Status  # Step 1: Create the field
-
-data_wards_cleaned$Application.Status2 <- ifelse(data_wards_cleaned$Application.Status %in% c("Withdrawn", "Declined"),
-                                         "Declined & Withdrawn",
-                                         data_wards_cleaned$Application.Status2)
-
-
-ward_status_count_table <- data_wards_cleaned %>%
-  group_by(Property.Ward, Application.Status2) %>%
-  summarise(Count = n()) %>%
-  ungroup()
-
-ward_status_pivot_count_table <- ward_status_count_table %>%
-  dplyr::select(Property.Ward, Application.Status2, Count) %>%
-  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
-
-ward_status_pivot_count_table <- ward_status_pivot_count_table %>%
-  dplyr::select(Property.Ward, "Accepted", "In-Progress", "Declined & Withdrawn")
-
-#ward_status_pivot_count_table %>%
- # kable(col.names = c("Ward", "Accepted", "In-Progress", "Declined & Withdrawn"),
-  #      caption = "Count of Application Status by Ward")
-
-ward_status_percent_table <- data_wards_cleaned %>%
-  group_by(Property.Ward, Application.Status2) %>%
-  summarise(Count = n()) %>%
-  mutate(Percentage = Count / sum(Count) * 100) %>%
-  ungroup()
-
-total_count_by_ward <- ward_status_percent_table %>%
-  group_by(Property.Ward) %>%
-  summarize(Total_Count = sum(Count, na.rm = TRUE))
-
-ward_status_pivot_table <- ward_status_percent_table %>%
-  dplyr::select(Property.Ward, Application.Status2, Percentage) %>%
-  pivot_wider(names_from = Application.Status2, values_from = Percentage, values_fill = 0) %>%
-  left_join(total_count_by_ward, by = "Property.Ward")
-
-ward_status_pivot_table <- ward_status_pivot_table %>%
-  dplyr::select(Property.Ward, Total_Count, "Accepted", "In-Progress", "Declined & Withdrawn")
-
-ward_summary <- ward_summary %>%
-  mutate(Property.Ward = as.numeric(Property.Ward))
-
-ward_status_pivot_table <- ward_status_pivot_table %>%
-  left_join(ward_summary, by = "Property.Ward") %>%
-  select(Property.Ward, Total_Count, Ward.Demand.Score, "Accepted", "In-Progress", "Declined & Withdrawn")
-
-ward_status_pivot_table <- ward_status_pivot_table %>%
-  mutate(across(where(is.numeric), ~ round(.x, 1)))
-
-ward_status_pivot_table %>%
-  arrange(desc(Total_Count)) %>%
-  filter(Total_Count >= 10) %>%
-  kable(col.names = c("Ward", "Count of Applications", "Applications/Lot", "Accepted (%)", "In-Progress (%)", "Declined & Withdrawn (%)"),
-        caption = "Percent of Application Status by Ward")
 ```
 
 ```{r}
-library(ggplot2)
-
-# Scatter plot with regression line
-ggplot(ward_status_pivot_table, aes(x = Ward.Demand.Score, y = Accepted)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(method = "lm", color = "blue", se = TRUE) +  # Adds a linear regression line with confidence interval
-  labs(title = "Scatter Plot of Ward Demand Score vs % Accepted Applications",
-       x = "Ward Demand Score",
-       y = "Accepted Applications") +
-  theme_minimal()
+# library(ggplot2)
+# 
+# # Scatter plot with regression line
+# ggplot(ward_status_pivot_table, aes(x = Ward.Demand.Score, y = Accepted)) +
+#   geom_point(alpha = 0.6) +
+#   geom_smooth(method = "lm", color = "blue", se = TRUE) +  # Adds a linear regression line with confidence interval
+#   labs(title = "Scatter Plot of Ward Demand Score vs % Accepted Applications",
+#        x = "Ward Demand Score",
+#        y = "Accepted Applications") +
+#   theme_minimal()
 
 ```
 
@@ -2450,6 +2495,10 @@ race_status_final <- race_status_final %>%
          `Declined & Withdrawn`, `Declined & Withdrawn (%)`, 
          Total, `Total (%)`)  # Ensure alternating columns
 
+race_status_final <- race_status_final %>%
+  rename(Declined = `Declined & Withdrawn`) %>%
+  rename('Declined (%)' = `Declined & Withdrawn (%)`)
+
 # Step 10: Format and Display the Table
 race_status_final %>%
   kable(align = c("l", rep("c", 8)), 
@@ -2468,7 +2517,7 @@ race_status_final %>%
   add_header_above(c(" " = 1, 
                      "Accepted" = 2, 
                      "In-Progress" = 2, 
-                     "Declined & Withdrawn" = 2, 
+                     "Declined" = 2, 
                      "Total" = 2)) %>%
   column_spec(1, width = "20em", extra_css = "min-width: 20em; max-width: 25em;") %>%  # Expands first column width in HTML
   column_spec(2:9, width = "4em", extra_css = "min-width: 4em; max-width: 6em;") %>%  # Keeps other columns narrower
@@ -2609,35 +2658,125 @@ application_window_final %>%
 
 ```{r}
 
-#ensure universe is clean
-filtered_data <- data_clean %>%
-  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
+# Application Status by community Area
 
+data_clean_comm_area <- data_clean %>% 
+  filter(!is.na(lon)) 
+
+# make dataframe into spatial feature 
+comm_area_apps_sf <- st_as_sf(x= data_clean_comm_area, coords = c("lon", "lat"), crs = 4326)
+
+comm_area_boundaries <- read_sf("geo_export_a446ed1e-4dd2-4beb-b7b6-6fb916b4bdde.shp")
+comm_area_boundaries <- st_transform(comm_area_boundaries, crs = 3435)
+
+#change the application layer CRS to equal 3435
+comm_area_apps_sf <- st_transform(comm_area_apps_sf, crs = st_crs(comm_area_boundaries))
+
+# Join polygon features to points
+comm_area_data <- st_join(comm_area_apps_sf, comm_area_boundaries, join = st_intersects)
+
+comm_area_table <- comm_area_data %>%
+  group_by(community) %>%
+  summarise(Unique_Property_PINs = n_distinct(Property.PIN)) %>%
+  arrange(desc(Unique_Property_PINs))
+
+comm_area_data$Application.Status2 <- comm_area_data$Application.Status  # Step 1: Create the field
+
+comm_area_data$Application.Status2 <- ifelse(comm_area_data$Application.Status %in% c("Withdrawn", "Declined"),
+                                         "Declined & Withdrawn",
+                                         comm_area_data$Application.Status2)
+
+
+comm_area_data <- st_drop_geometry(comm_area_data)
+
+comm_area_status_count_table <- comm_area_data %>%
+  group_by(community, Application.Status2) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+comm_area_status_pivot_count_table <- comm_area_status_count_table %>%
+  dplyr::select(community, Application.Status2, Count) %>%
+  pivot_wider(names_from = Application.Status2, values_from = Count, values_fill = 0)
+
+comm_area_status_pivot_count_table <- comm_area_status_pivot_count_table %>%
+  dplyr::select(community, "Accepted", "In-Progress", "Declined & Withdrawn")
+
+
+
+comm_area_status_percent_table <- comm_area_data %>%
+  group_by(community, Application.Status2) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+total_count_by_comm_area <- comm_area_status_percent_table %>%
+  group_by(community) %>%
+  summarize(Total_Count = sum(Count, na.rm = TRUE))
+
+comm_area_status_pivot_table <- comm_area_status_percent_table %>%
+  dplyr::select(community, Application.Status2, Percentage) %>%
+  pivot_wider(names_from = Application.Status2, values_from = Percentage, values_fill = 0) %>%
+  left_join(total_count_by_comm_area, by = "community")
+
+comm_area_status_pivot_table <- comm_area_status_pivot_table %>%
+  rename(Declined = `Declined & Withdrawn`)
+
+comm_area_status_pivot_table <- comm_area_status_pivot_table %>%
+  dplyr::select(community, Total_Count, "Accepted", "In-Progress", "Declined")
+
+comm_area_status_pivot_table <- comm_area_status_pivot_table %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))
+
+######## CREATE DEMAND SCORE 
+
+#ensure universe is clean
+# filtered_data <- data_clean %>%
+#   filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
 
 # Get unique Property.PIN values
-unique_lots_commarea <- filtered_data %>%
-  distinct(Property.PIN, Property.Community.Area.1)
+unique_lots_commarea <- comm_area_data %>%
+  distinct(Property.PIN, community)
 
 # Count unique lots by Community Area
 commarea_lot_counts <- unique_lots_commarea %>%
-  group_by(Property.Community.Area.1) %>%
+  group_by(community) %>%
   summarise(Unique.Lots.by.Commarea = n(), .groups = "drop")
 
 # Check the total record count
 nrow(unique_lots_commarea)  # Should returned 1100 records
 
 # Count unique applications by Community Area
-commarea_app_counts <- data_clean %>%
+commarea_app_counts <- comm_area_data %>%
   filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
-  group_by(Property.Community.Area.1) %>%
+  group_by(community) %>%
   summarise(Property.Applications.by.Commarea = n(), .groups = "drop")
 
 # Join the two values into one dataset
 commarea_summary <- commarea_lot_counts %>%
-  full_join(commarea_app_counts, by = c("Property.Community.Area.1" = "Property.Community.Area.1")) 
+  full_join(commarea_app_counts, by = c("community" = "community")) 
 
 # Calculate "Demand" 
 commarea_summary <- commarea_summary %>%
   mutate(Commarea.Demand.Score = Property.Applications.by.Commarea / Unique.Lots.by.Commarea)
+
+commarea_summary <- commarea_summary %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%
+  select(community,Commarea.Demand.Score)
+
+######## JOIN DEMAND SCORE TO TABLE
+
+comm_area_status_pivot_table <- left_join(comm_area_status_pivot_table, commarea_summary, by = "community")
+
+#Reorder the columns 
+comm_area_status_pivot_table <- comm_area_status_pivot_table %>%
+  dplyr::select(community, Total_Count, Commarea.Demand.Score, "Accepted", "In-Progress", "Declined")
+
+######## CREATE TABLE
+
+comm_area_status_pivot_table %>%
+  arrange(desc(Total_Count)) %>%
+  filter(Total_Count >= 10) %>%
+  kable(col.names = c("Community Area", "Count of Applications", "Demand Score", "Accepted (%)", "In-Progress (%)", "Declined (%)"),
+        caption = "Percent of Application Status by Community Area")
 
 ```
