@@ -189,7 +189,6 @@ data_clean <- data_clean %>%
 
 ```
 
-
 # Application Status by community Area
 
 ```{r}
@@ -310,10 +309,7 @@ comm_area_status_pivot_table %>%
 
 ```
 
-
-
 # Maps
-
 
 ```{r}
 data_clean <- data_clean %>% rename(applicant_ZIP = Applicant.ZIP.Code)
@@ -413,14 +409,22 @@ zips_chi_join <- zips_chi_join %>%
 zips_chi_join <- st_intersection(zips_chi_join, city_boundary)
 
 tm_shape(zips_chi_join) +
-  tm_polygons(col = "Count", 
-              title = "Lot Count",
-              palette = "Greens",
-              breaks = c(0, 1, 10, 37, 69, 133, max(zips_chi_join$Count, na.rm = TRUE)), 
-              labels = c("No lots applied for", "1-9", "10-36", "37-68", "69-132", "133-217"),
-              NA.hide = TRUE) +  # Hide NA values from the legend
-  tm_layout(legend.position = c("left", "bottom"), legend.outside = FALSE, frame = FALSE) +
-  tm_text("Count_Label", size = 0.5, col = "black", remove.overlap = TRUE) +  
+  tm_polygons(
+    col = "Count", 
+    title = "Lot Count",
+    palette = "Greens",
+    breaks = c(0, 1, 10, 37, 69, 133, max(zips_chi_join$Count, na.rm = TRUE)), 
+    labels = c("No lots applied for", "1-9", "10-36", "37-68", "69-132", "133-217"),
+    NA.hide = TRUE
+  ) +
+  tm_layout(
+    legend.outside = FALSE,
+    legend.title.size = 1,
+    legend.text.size = 0.8,
+    frame = FALSE,
+    outer.margins = c(0, 0.05, 0, 0)  # top, right, bottom, left — optional tweak
+  ) +
+  tm_text("Count_Label", size = 0.5, col = "black", remove.overlap = TRUE) +
   tm_title("Figure 10. Lot Count by Zip Code as of February 11, 2025")
 
 # tm_shape(zips_chi_join) +
@@ -479,7 +483,7 @@ tm_shape(zips_chi_app) +
 
 ```
 
-# Figure 12 Percent of applicants from within the same ZIP code
+# Figure 12 Percent of Applicants from the Same ZIP Code as the Lot They Applied foras of February 11, 2025
 
 ```{r}
 
@@ -522,7 +526,7 @@ tm_shape(percent_local_zips) +
 
 ```
 
-# Figure 13: Percent of applications from within the same ZIP code for Individuals/Sole Proprietors only
+# Figure 13: Percent of Sole Proprietor/Individual Applicants from the Same ZIP Code as the Lot They Applied for as of February 11, 2025
 
 ```{r}
 
@@ -562,6 +566,45 @@ tm_shape(percent_local_zips) +
               fill.scale = tm_scale_intervals(n = 5, style = "jenks", values = "brewer.blues")) +
   tm_layout(legend.outside = TRUE, frame = FALSE) +
   tm_title("Percent of Applicants from within same ZIP Code for Sole Proprietors/Individuals")
+
+
+```
+
+# Figure 14: Percent of Non-Individual Entity (For-Profit, Non-Profit, LLC) Applicants from within the Same ZIP Code as the Lot They Applied for as of February 11, 2025 
+
+```{r}
+
+data_clean_group <- data_clean %>%
+  filter(Entity_Type_Group == "All Others")
+
+# For zip codes that are the same for applicant and property, summarise applications (rows) by zip code and count the number of times that each zip appears in a new column called "local_count"
+matched_zips <- data_clean_group %>%
+  filter(applicant_ZIP == Property_ZipCode) %>%
+  group_by(applicant_ZIP) %>%
+  summarise(local_count = n())
+
+# For ALL zip codes, summarise applications (rows) by zip code and count the number of times that each zip appears in a new column called "time_count"
+total_zips <- data_clean %>%
+  filter(applicant_ZIP == Property_ZipCode) %>%
+  group_by(applicant_ZIP) %>%
+  summarise(total_count = n())
+
+joined_zips <- inner_join(total_zips,matched_zips, by = "applicant_ZIP")
+
+# Calculate the percentage of local applicants
+joined_zips <- joined_zips %>%
+  mutate(percent_local = (local_count / total_count) * 100)
+
+percent_local_zips <- left_join(zips_chi_join, joined_zips, by = c("ZCTA5CE10" = "applicant_ZIP"))
+
+percent_local_zips <- percent_local_zips %>%
+  mutate(percent_local = replace_na(percent_local, 0))
+
+tm_shape(percent_local_zips) +
+  tm_polygons(fill = "percent_local", 
+              fill.scale = tm_scale_intervals(n = 5, style = "equal", values = "brewer.blues")) +
+  tm_layout(legend.outside = TRUE, frame = FALSE) +
+  tm_title("Percent of Applications from within ZIP Code for non-individual entities")
 
 
 ```
@@ -777,46 +820,6 @@ if(any(duplicated(names(property_zips_points_sf)))) {
 
 
 
-
-# Percent of applications from within the same ZIP code for non-individual entities
-
-```{r}
-
-data_clean_group <- data_clean %>%
-  filter(Entity_Type_Group == "All Others")
-
-# For zip codes that are the same for applicant and property, summarise applications (rows) by zip code and count the number of times that each zip appears in a new column called "local_count"
-matched_zips <- data_clean_group %>%
-  filter(applicant_ZIP == Property_ZipCode) %>%
-  group_by(applicant_ZIP) %>%
-  summarise(local_count = n())
-
-# For ALL zip codes, summarise applications (rows) by zip code and count the number of times that each zip appears in a new column called "time_count"
-total_zips <- data_clean %>%
-  filter(applicant_ZIP == Property_ZipCode) %>%
-  group_by(applicant_ZIP) %>%
-  summarise(total_count = n())
-
-joined_zips <- inner_join(total_zips,matched_zips, by = "applicant_ZIP")
-
-# Calculate the percentage of local applicants
-joined_zips <- joined_zips %>%
-  mutate(percent_local = (local_count / total_count) * 100)
-
-percent_local_zips <- left_join(zips_chi_join, joined_zips, by = c("ZCTA5CE10" = "applicant_ZIP"))
-
-percent_local_zips <- percent_local_zips %>%
-  mutate(percent_local = replace_na(percent_local, 0))
-
-tm_shape(percent_local_zips) +
-  tm_polygons(fill = "percent_local", 
-              fill.scale = tm_scale_intervals(n = 5, style = "equal", values = "brewer.blues")) +
-  tm_layout(legend.outside = TRUE, frame = FALSE) +
-  tm_title("Percent of Applications from within ZIP Code for non-individual entities")
-
-
-```
-
 # Percent of applications going to different ZIP Codes
 
 ```{r}
@@ -921,4 +924,132 @@ tm_shape(count_non_local_apps) +
 
 
 ```
+Create Matt's CSV file for Maps
 
+```{r, matt csv}
+#FIGURE 10 UNIQUE LOTS
+# Filter out invalid ZIP codes
+filtered_data <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0)
+
+# Get unique Property.PIN values
+unique_lots <- filtered_data %>%
+  distinct(Property.PIN, Property_ZipCode)
+
+# Count unique lots by ZIP Code
+zip_lot_counts <- unique_lots %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Unique.Lots.by.ZIP = n(), .groups = "drop")
+
+#FIGURE 10 UNIQUE INDIVIDUALS
+# Filter dataset for Chicago applicants and valid ZIP codes
+filtered_applicants <- data_clean %>%
+  filter(Applicant.Address.City %in% c("Chicago", "Chicago, IL") & 
+         !is.na(Applicant.ZIP.Code) & Applicant.ZIP.Code != 0)
+
+# Keep only unique Name.Key per ZIP
+unique_applicants <- filtered_applicants %>%
+  distinct(Name.Key, Applicant.ZIP.Code)  # Ensures each applicant is counted only once per ZIP
+
+# Count unique applicants by home ZIP
+home_zip_counts <- unique_applicants %>%
+  group_by(Applicant.ZIP.Code) %>%
+  summarise(Applicant.Counts.by.Home.ZIP = n(), .groups = "drop")
+
+#FIGURE 11 APPLICANTS FROM SAME ZIP APPLIED FOR
+# Sum all application counts by Property_ZipCode
+property_app_counts <- data_clean %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Property.Applications.by.ZIP = n(), .groups = "drop")
+
+# Filter dataset where Property_ZipCode matches Applicant.ZIP
+matching_zips <- data_clean %>%
+  filter(Property_ZipCode == Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Property.Applicant.ZIP.Match.Count = n(), .groups = "drop")
+
+# Merge the two datasets to calculate the percentage match
+zip_summary <- property_app_counts %>%
+  left_join(matching_zips, by = "Property_ZipCode") %>%
+  mutate(Property.Applicant.ZIP.Match.Count = replace_na(Property.Applicant.ZIP.Match.Count, 0),  # Replace NA with 0
+         Pct.Property.Applicant.ZIP.Match = Property.Applicant.ZIP.Match.Count / Property.Applications.by.ZIP * 100)
+
+# Filter dataset for Sole Proprietor/Individual applicants
+sole_proprietor_data <- data_clean %>%
+  filter(Purchasing.Entity.Type == "Sole Proprietor/Individual")
+
+# Sum all application counts by Property_ZipCode for Sole Proprietors
+sole_proprietor_app_counts <- sole_proprietor_data %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Sole.Proprietor.Applications.by.ZIP = n(), .groups = "drop")
+
+# Filter dataset where Property_ZipCode matches Applicant.ZIP for Sole Proprietors
+sole_proprietor_matching_zips <- sole_proprietor_data %>%
+  filter(Property_ZipCode == Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Sole.Proprietor.Applicant.ZIP.Match.Count = n(), .groups = "drop")
+
+# Merge the two datasets to calculate the percentage match
+sole_proprietor_summary <- sole_proprietor_app_counts %>%
+  left_join(sole_proprietor_matching_zips, by = "Property_ZipCode") %>%
+  mutate(Sole.Proprietor.Applicant.ZIP.Match.Count = replace_na(Sole.Proprietor.Applicant.ZIP.Match.Count, 0),  # Replace NA with 0
+         Pct.Sole.Proprietor.Applicant.ZIP.Match = Sole.Proprietor.Applicant.ZIP.Match.Count / Sole.Proprietor.Applications.by.ZIP * 100)
+
+# Filter dataset for non-Sole Proprietor (Organizations)
+org_data <- data_clean %>%
+  filter(Purchasing.Entity.Type != "Sole Proprietor/Individual")
+
+# Sum all application counts by Property_ZipCode for Organizations
+org_app_counts <- org_data %>%
+  filter(!is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Org.Applications.by.ZIP = n(), .groups = "drop")
+
+# Filter dataset where Property_ZipCode matches Applicant.ZIP.Code for Organizations
+org_matching_zips <- org_data %>%
+  filter(Property_ZipCode == Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Org.Applicant.ZIP.Match.Count = n(), .groups = "drop")
+
+# Merge the two datasets to calculate the percentage match
+org_summary <- org_app_counts %>%
+  left_join(org_matching_zips, by = "Property_ZipCode") %>%
+  mutate(Org.Applicant.ZIP.Match.Count = replace_na(Org.Applicant.ZIP.Match.Count, 0),  # Replace NA with 0
+         Pct.Org.Applicant.ZIP.Match = Org.Applicant.ZIP.Match.Count / Org.Applications.by.ZIP * 100)
+
+# Count applications where Property_ZipCode does NOT match Applicant.ZIP.Code
+outside_zip_applications <- data_clean %>%
+  filter(Property_ZipCode != Applicant.ZIP.Code & 
+         !is.na(Property_ZipCode) & Property_ZipCode != 0) %>%
+  group_by(Property_ZipCode) %>%
+  summarise(Outside.ZIP.Application.Count = n(), .groups = "drop")
+
+# Start with a full join of all ZIP-related datasets
+final_zip_summary <- zip_lot_counts %>%
+  full_join(home_zip_counts, by = c("Property_ZipCode" = "Applicant.ZIP.Code")) %>%
+  full_join(zip_summary, by = "Property_ZipCode") %>%
+  full_join(sole_proprietor_summary, by = "Property_ZipCode") %>%
+  full_join(org_summary, by = "Property_ZipCode") %>%
+  full_join(outside_zip_applications, by = "Property_ZipCode")
+
+# Replace NA values with 0 to avoid missing data
+final_zip_summary[is.na(final_zip_summary)] <- 0
+
+final_zip_summary <- final_zip_summary %>%
+  mutate(ZIP.Demand.Score = Property.Applications.by.ZIP / Unique.Lots.by.ZIP)
+
+
+# Save to CSV
+#write.csv(final_zip_summary, "figure.map.values.csv", row.names = FALSE)
+
+rm(filtered_applicants, filtered_data, final_zip_summary, home_zip_counts, matching_zips, org_app_counts,
+   org_data, org_matching_zips, org_summary, outside_zip_applications, property_app_counts,
+   sole_proprietor_app_counts, sole_proprietor_data, sole_proprietor_matching_zips, 
+   sole_proprietor_summary, unique_applicants, unique_lots, zip_lot_counts, zip_summary)
+
+```
