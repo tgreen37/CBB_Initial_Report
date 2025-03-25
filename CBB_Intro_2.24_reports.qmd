@@ -2779,7 +2779,7 @@ comm_area_status_pivot_table <- comm_area_status_pivot_table %>%
 comm_area_status_pivot_table %>%
   arrange(desc(Total_Count)) %>%
   filter(Total_Count >= 10) %>%
-  kable(col.names = c("Community Area", "Count of Applications", "Demand Score", "Accepted (%)", "In-Progress (%)", "Declined (%)"),
+  kable(col.names = c("Community Area", "Count of Applications", "Applications/Lot", "Accepted (%)", "In-Progress (%)", "Declined (%)"),
         caption = "Percent of Application Status by Community Area")
 
 ```
