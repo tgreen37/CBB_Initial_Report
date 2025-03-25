@@ -323,15 +323,18 @@ ggplot(status_overall_table, aes(x = Application.Status2, y = Percent)) +
   labs(title = "Application Status Overview",
        x = "Application Status",
        y = "Percent of Applications") +
+  scale_x_discrete(labels = c("Accepted" = "Accepted", 
+                              "In-Progress" = "In-Progress", 
+                              "Declined & Withdrawn" = "Declined")) +  # Custom labels so that "Declined & Withdrawn" is just "Declined"
   scale_y_continuous(labels = scales::percent_format(scale = 1), 
-                     limits = c(-10, 100),  # Keep scale within 0-100%
-                     expand = expansion(mult = c(0, 0.1))) +  # Prevents excess space
+                     limits = c(-10, 100),  
+                     expand = expansion(mult = c(0, 0.1))) +
   theme_minimal() +
   theme(
-    legend.position = "none",  # Remove legend since color is directly shown
-    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.025),  # Adjust x-axis labels
-    axis.title.x = element_text(margin = margin(t = 5)),  # Adjust x-axis title position
-    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)  # Expand left margin to fit first label
+    legend.position = "none",
+    axis.text.x = element_text(angle = 50, hjust = 1, vjust = 1.025),
+    axis.title.x = element_text(margin = margin(t = 5)),
+    plot.margin = margin(t = 10, r = 5, b = 10, l = 50)
   )
 
 rm(status_overall_table)
