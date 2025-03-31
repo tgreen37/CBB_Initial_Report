@@ -2783,3 +2783,58 @@ comm_area_status_pivot_table %>%
         caption = "Percent of Application Status by Community Area")
 
 ```
+
+```{r}
+
+# Applications per Lot by lot type
+
+# Create a table identifying the count of lots for each lot type
+data_clean_lot_count <- data_clean %>% 
+  group_by(Application.Type) %>%
+  summarise(Lot_Count = n_distinct(Property.PIN)) %>%
+  arrange(desc(Lot_Count))
+
+# Create a table identifying the number of applications for each lot type
+data_clean_application_count <- data_clean %>% 
+  group_by(Application.Type) %>%
+  summarise(App_Count = n_distinct(Record.ID)) %>%
+  arrange(desc(App_Count))
+
+# Join together the two tables above so number of lots and applications are in the same table
+data_clean_lot_count <- left_join(data_clean_lot_count, data_clean_application_count, by = "Application.Type")
+
+# Add a field to this table that divides applications/lot
+demand_table_lot_type <- data_clean_lot_count %>%
+  mutate(Application_Per_Lot = (App_Count/Lot_Count))
+
+
+#Create table to get number of accepted applications by lot type
+demand_table_statuses <- data_clean %>%
+  filter(Application.Status2 == "Accepted") %>%
+  group_by(Application.Type, Application.Status2) %>%
+  summarise(Accept_Count = n_distinct(Record.ID)) %>%
+  select(Application.Type, Accept_Count)
+
+# Join the accepted count to the demand_table_lot_type
+demand_table_lot_type <- left_join(demand_table_lot_type, demand_table_statuses, by = "Application.Type")
+  
+# Calculate acceptance rate
+demand_table_lot_type <- demand_table_lot_type %>%
+  mutate(Acceptance_Rate = ((Accept_Count/App_Count)*100)) %>%
+  select(Application.Type, Lot_Count, App_Count, Application_Per_Lot, Acceptance_Rate)
+
+# Limit decimals in the app/lot field to one decimal point
+demand_table_lot_type <- demand_table_lot_type %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))
+
+demand_table_lot_type <- demand_table_lot_type %>%
+  replace(is.na(.), 0)
+
+######## CREATE TABLE
+
+demand_table_lot_type %>%
+  arrange(desc(Application_Per_Lot)) %>%
+  kable(col.names = c("Application Type", "Count of Lots", "Count of Applications", "Applications/Lot", "Acceptance Rate"),
+        caption = "Applications Per Lot by Application Type")
+
+```
